@@ -11,7 +11,9 @@
 <tr><td><strong>Sign-in details:</strong> your Google account's name, email address and profile picture link (if you continue with Google), or your phone number (if you sign in with a code)</td><td>To create your account and sign you in. Your email and phone number are never shown to other users. We only ask Google for your basic profile and email, never your contacts, files or other Google data.</td></tr>
 <tr><td><strong>Profile:</strong> first and last name, @username, photo, status, bio, interests; optionally birth year and gender</td><td>So people can recognise you. Age and gender are hidden unless you switch them on.</td></tr>
 <tr><td><strong>Location</strong> (only while Discoverable is on, or when a group admin sets a group's location)</td><td>To show you people and groups within the discovery radius. Rounded to about 11 m, used only on our server, never shown to anyone, and deleted when Discoverable ends.</td></tr>
-<tr><td><strong>Messages and media:</strong> text, photos, voice notes, documents, reactions, replies</td><td>To deliver your chats. Media is stored privately and only members of that chat can open it.</td></tr>
+<tr><td><strong>Messages and media:</strong> text, photos, voice notes, documents, captions, file names and link previews</td><td>To deliver your chats. They are <strong>end-to-end encrypted</strong>: they're locked on the sender's phone and can only be unlocked on the phones of the people in that chat. We store only the locked version and can't read it.</td></tr>
+<tr><td><strong>Chat details we can see:</strong> who is in a chat, when messages are sent, the type of message (text, photo, voice, document), file sizes, photo sizes, voice note length, reactions, read receipts</td><td>To deliver messages, show ticks and keep the service working. These are not encrypted.</td></tr>
+<tr><td><strong>Encryption keys:</strong> your public key; if you set a backup PIN, a copy of your private key locked with that PIN</td><td>So others can send you encrypted messages, and so you can read your chats on a new phone. We never get your PIN or your unlocked private key.</td></tr>
 <tr><td><strong>Connections and activity:</strong> invites, groups, blocks, games, read receipts, last seen (if you turn it on)</td><td>To run the app's features.</td></tr>
 <tr><td><strong>Reports</strong></td><td>When you report a message or person, a copy of the reported message is kept so we can review it.</td></tr>
 <tr><td><strong>Device and app data:</strong> push notification token, phone model, operating system version, app version</td><td>To send you notifications, and to understand problems on specific phones.</td></tr>
@@ -50,7 +52,12 @@
 </ul>
 
 <h2>6. Security</h2>
-<p>Data is encrypted in transit (HTTPS) and protected by strict access rules on our database, so only the right people can read each chat. Messages are not yet end-to-end encrypted. No system is perfectly secure, so please don't share very sensitive information.</p>
+<p><strong>End-to-end encryption.</strong> Messages, photos, voice notes and documents in 1:1 and group chats are encrypted on your phone with keys that never leave the phones of the people in the chat. Pocketwave's servers, and anyone who gets into them, see only locked data. You can compare a security code with a contact (Contact info → Encryption) to check that nobody has swapped a key.</p>
+<p><strong>What isn't end-to-end encrypted:</strong> your profile and group names, descriptions and photos (people need to see them before connecting), game moves, and the chat details listed in section 1. Messages sent before encryption was switched on stay as they were.</p>
+<p><strong>Notifications:</strong> the locked message is sent to your phone, which unlocks it and shows the text. You can turn message text off in Privacy settings.</p>
+<p><strong>Reports:</strong> if you report a message, your phone sends us a copy of that message so we can review it.</p>
+<p><strong>Backup PIN:</strong> limited to 5 wrong tries, then locked for an hour. We can't recover a forgotten PIN.</p>
+<p>All data also travels over HTTPS and is protected by strict access rules on our database. No system is perfectly secure.</p>
 
 <h2>7. Your rights</h2>
 <p>Under India's Digital Personal Data Protection Act, 2023 you can access, correct and delete your personal data, withdraw consent, and raise a complaint. Most of this you can do in the app (Edit profile, Privacy settings, Delete account). For anything else, email us. If you're not satisfied, you may complain to the Data Protection Board of India.</p>
