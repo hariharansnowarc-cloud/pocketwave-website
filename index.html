@@ -1,48 +1,195 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pocketwave · Meet people nearby, only when you both say yes</title>
-<meta name="description" content="Pocketwave is a messaging app for meeting people around you at malls, concerts, fests and events. You're only visible when you choose, and chats start only when both people agree.">
-<meta property="og:title" content="Pocketwave"><meta property="og:description" content="Meet people nearby, only when you both say yes."><meta property="og:image" content="https://www.pocketwave.app/icon.png">
-<link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/style.css">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pocketwave · Meet people around you</title>
+<meta name="description" content="Pocketwave helps you meet people at fests, concerts and events. Chats start only when you both say yes, and your location is never shown.">
+<meta property="og:title" content="Pocketwave">
+<meta property="og:description" content="Meet people around you. Chat only when you both say yes.">
+<meta property="og:image" content="https://pocketwave.app/icon.png">
+<link rel="icon" href="/favicon.png">
 <style>
-.hero{background:linear-gradient(160deg,#12A891,#0A6B5F);color:#fff;text-align:center;padding:56px 20px 64px}
-.hero img{width:112px;height:112px;border-radius:26px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-.hero h1{font-size:40px;margin:18px 0 6px;letter-spacing:-.5px}
-.hero p{font-size:19px;max-width:540px;margin:0 auto;opacity:.95}
-.cta{display:inline-block;margin-top:26px;background:#fff;color:#0A6B5F;font-weight:700;padding:13px 24px;border-radius:999px;text-decoration:none}
-.soon{display:block;margin-top:10px;font-size:14px;opacity:.85}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:8px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px}
-.card .e{font-size:28px}.card h3{margin:8px 0 4px;font-size:17px}.card p{margin:0;color:var(--muted);font-size:15px}
-.steps{counter-reset:s;list-style:none;padding:0}.steps li{counter-increment:s;padding-left:44px;position:relative;margin:14px 0}
-.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:30px;height:30px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
-.top{position:absolute;top:16px;right:20px;font-size:14px}.top a{color:#fff;opacity:.9;margin-left:16px;text-decoration:none}
-</style></head><body>
-<section class="hero" style="position:relative">
-  <nav class="top"><a href="/download">Download</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
-  <img src="/icon.png" alt="Pocketwave app icon">
-  <h1>Pocketwave</h1>
-  <p>Meet people around you at malls, concerts, fests and events. You're only visible when you choose, and a chat starts only when you both say yes.</p>
-  <a class="cta" href="/download">Download the beta</a>
-  <span class="soon">Android · Coming soon to Google Play</span>
-</section>
-<main>
-  <h2>How it works</h2>
-  <ol class="steps">
-    <li><strong>Go Discoverable</strong> for an hour or a few. It switches itself off.</li>
-    <li><strong>See who's nearby</strong>: people and groups close to you who are also Discoverable.</li>
-    <li><strong>Send an invite.</strong> Chat opens only when they accept. Or scan each other's QR to connect instantly.</li>
-  </ol>
-  <h2>Why Pocketwave</h2>
-  <div class="grid">
-    <div class="card"><div class="e">🤝</div><h3>Consent first</h3><p>Nobody can message you until you accept. Declines are silent.</p></div>
-    <div class="card"><div class="e">📍</div><h3>Nearby, not pinpointed</h3><p>No distances, no maps, no coordinates. Your location is deleted when Discoverable ends.</p></div>
-    <div class="card"><div class="e">💬</div><h3>Chat you already know</h3><p>Photos, voice notes, documents, reactions, replies, read receipts and groups.</p></div>
-    <div class="card"><div class="e">🎮</div><h3>Games to break the ice</h3><p>Chess, Connect Four, tic-tac-toe, quizzes and icebreaker cards with friends and groups.</p></div>
-    <div class="card"><div class="e">👥</div><h3>Event groups</h3><p>Admins show a group to people nearby; you join with one tap after approval.</p></div>
-    <div class="card"><div class="e">🛡️</div><h3>Safe by design</h3><p>Block and report everywhere, your phone number is never shown, 18+ only.</p></div>
+:root{--brand:#0E8F7E;--brand2:#12A891;--deep:#0A6B5F;--text:#16201E;--muted:#5F6D69;--bg:#fff;--soft:#F2F7F5;--line:#E1E8E5}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--text);background:var(--bg)}
+a{color:var(--brand)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 22px}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
+.logo{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:800;font-size:20px}
+.logo img{width:34px;height:34px;border-radius:9px}
+.nav nav a{color:#fff;opacity:.9;text-decoration:none;margin-left:20px;font-size:15px}
+.hero{background:linear-gradient(155deg,var(--brand2),var(--deep));color:#fff;padding-bottom:70px;overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;padding-top:40px}
+.hero h1{font-size:50px;line-height:1.08;margin:0 0 16px;letter-spacing:-1px}
+.hero p{font-size:19px;opacity:.95;margin:0 0 28px;max-width:470px}
+.btn{display:inline-flex;align-items:center;gap:10px;background:#fff;color:var(--deep);font-weight:700;padding:15px 26px;border-radius:14px;text-decoration:none;font-size:17px}
+.btn.dark{background:var(--brand);color:#fff}
+.note{display:block;margin-top:12px;font-size:14px;opacity:.85}
+/* phone mockup */
+.phone{width:280px;margin:0 auto;background:#0B141A;border-radius:38px;padding:12px;box-shadow:0 30px 60px rgba(0,0,0,.35)}
+.screen{background:#F6F8F7;border-radius:28px;overflow:hidden;height:540px;color:var(--text);font-size:13px}
+.bar{background:var(--brand);color:#fff;padding:16px 16px 12px;font-weight:700;font-size:16px}
+.toggle{margin:12px;background:#fff;border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.dot{width:10px;height:10px;border-radius:50%;background:#2BB673;flex:none}
+.sw{margin-left:auto;width:34px;height:20px;border-radius:10px;background:var(--brand);position:relative}
+.sw:after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.person{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #E8EEEC;background:#fff}
+.av{width:40px;height:40px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+.pname{font-weight:700;font-size:14px}
+.ptag{color:#6B7A75;font-size:12px}
+.inv{margin-left:auto;background:var(--brand);color:#fff;border-radius:8px;padding:5px 10px;font-weight:600;font-size:12px}
+.inv.done{background:#E7F3F0;color:var(--deep)}
+.chips{display:flex;gap:4px;margin-top:3px}
+.chip{border:1px solid #DCE5E2;border-radius:10px;padding:0 6px;font-size:10px;color:#4A5753}
+section{padding:72px 0}
+.soft{background:var(--soft)}
+h2{font-size:34px;margin:0 0 12px;letter-spacing:-.5px}
+.lead{color:var(--muted);font-size:18px;max-width:620px;margin:0 0 36px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.step{background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px}
+.num{width:34px;height:34px;border-radius:50%;background:var(--brand);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+.step h3,.card h3{margin:0 0 6px;font-size:18px}
+.step p,.card p{margin:0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px}
+.ic{font-size:26px;margin-bottom:8px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+.list{list-style:none;padding:0;margin:0}
+.list li{padding:12px 0 12px 34px;position:relative;border-bottom:1px solid var(--line)}
+.list li:before{content:"✓";position:absolute;left:4px;top:11px;color:var(--brand);font-weight:800}
+.lock{background:linear-gradient(155deg,var(--brand2),var(--deep));color:#fff;border-radius:22px;padding:34px}
+.lock h3{font-size:24px;margin:0 0 8px}
+.lock p{opacity:.92;margin:0}
+details{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:10px}
+summary{font-weight:700;cursor:pointer}
+details p{color:var(--muted);margin:10px 0 0}
+.cta{text-align:center;background:linear-gradient(155deg,var(--brand2),var(--deep));color:#fff}
+.cta h2{color:#fff}
+.cta p{opacity:.9;font-size:18px;margin:0 0 26px}
+footer{padding:30px 0;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
+footer a{color:var(--muted);margin-right:16px}
+@media (max-width:820px){
+  .hero-grid,.split{grid-template-columns:1fr}
+  .hero h1{font-size:38px}
+  .steps,.grid{grid-template-columns:1fr}
+  .phone{margin-top:20px}
+  .nav nav a.hide-sm{display:none}
+  h2{font-size:28px}
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="nav">
+      <a class="logo" href="/"><img src="/icon.png" alt="">Pocketwave</a>
+      <nav><a class="hide-sm" href="#how">How it works</a><a class="hide-sm" href="#privacy">Privacy</a><a href="/download">Download</a></nav>
+    </div>
+    <div class="hero-grid">
+      <div>
+        <h1>Meet the people around you.</h1>
+        <p>At a fest, a concert or a meetup, see who else is up for meeting new people. Chats start only when you both say yes.</p>
+        <a class="btn" href="/download">⬇ Download for Android</a>
+        <span class="note">Free · No ads · Your location is never shown</span>
+      </div>
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="bar">Nearby</div>
+          <div class="toggle"><span class="dot"></span><div><b>Discoverable</b><div class="ptag">On · 1h 42m left</div></div><span class="sw"></span></div>
+          <div class="person"><div class="av" style="background:#E07A5F">A</div><div><div class="pname">Ananya</div><div class="ptag">Here for the music 🎶</div><div class="chips"><span class="chip">Music</span><span class="chip">Travel</span></div></div><span class="inv">Invite</span></div>
+          <div class="person"><div class="av" style="background:#3D85C6">K</div><div><div class="pname">Karthik</div><div class="ptag">First time at this fest</div><div class="chips"><span class="chip">Cricket</span><span class="chip">Tech</span></div></div><span class="inv done">Invited</span></div>
+          <div class="person"><div class="av" style="background:#8E6FD1">M</div><div><div class="pname">Meera</div><div class="ptag">Looking for a quiz team</div><div class="chips"><span class="chip">Books</span><span class="chip">Quiz</span></div></div><span class="inv">Invite</span></div>
+          <div class="person"><div class="av" style="background:#2BB673">R</div><div><div class="pname">Rahul</div><div class="ptag">Gate 3, near the food stalls</div><div class="chips"><span class="chip">Food</span><span class="chip">Gaming</span></div></div><span class="inv">Invite</span></div>
+          <div class="person"><div class="av" style="background:#D4A017">S</div><div><div class="pname">Sneha</div><div class="ptag">Photographer 📷</div><div class="chips"><span class="chip">Art</span><span class="chip">Photography</span></div></div><span class="inv">Invite</span></div>
+        </div></div>
+      </div>
+    </div>
   </div>
-  <h2>Running an event?</h2>
-  <p>Fests, concerts, conferences and meetups can use Pocketwave to help attendees connect. <a href="mailto:support@pocketwave.app?subject=Pocketwave%20for%20events">Talk to us</a>.</p>
-</main>
-<footer>© 2026 Pocketwave · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/delete-account">Delete account</a> · <a href="mailto:support@pocketwave.app">support@pocketwave.app</a></footer>
-</body></html>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="lead">No endless swiping, no strangers in your inbox. Just the people who are actually here.</p>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><h3>Turn on Discoverable</h3><p>Pick one, three or six hours. When the time's up, you disappear on your own.</p></div>
+      <div class="step"><div class="num">2</div><h3>See who's around</h3><p>Only people nearby who've switched it on too. No maps, no distances.</p></div>
+      <div class="step"><div class="num">3</div><h3>Say hi</h3><p>Send an invite. If they accept, you chat. Or scan each other's QR code and connect on the spot.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="soft">
+  <div class="wrap">
+    <h2>Everything you'd expect from a chat app</h2>
+    <p class="lead">Once you're connected, it's a proper messenger.</p>
+    <div class="grid">
+      <div class="card"><div class="ic">💬</div><h3>Chats and groups</h3><p>Photos, voice notes, documents, replies, reactions and read ticks.</p></div>
+      <div class="card"><div class="ic">👥</div><h3>Event groups</h3><p>Show your group to people nearby. They ask to join, and an admin lets them in.</p></div>
+      <div class="card"><div class="ic">🎮</div><h3>Games</h3><p>Chess, Connect Four, tic-tac-toe, quizzes and icebreaker cards.</p></div>
+      <div class="card"><div class="ic">🔳</div><h3>QR codes</h3><p>Scan a friend's code to connect instantly. Groups have one too.</p></div>
+      <div class="card"><div class="ic">🌙</div><h3>Dark mode</h3><p>Follows your phone, or pick light or dark yourself.</p></div>
+      <div class="card"><div class="ic">🛡️</div><h3>Block and report</h3><p>On every profile, chat and message. Anyone who's blocked can't find you again.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap split">
+    <div>
+      <h2>Private by design</h2>
+      <p class="lead">Meeting strangers only works if you feel safe doing it, so we built Pocketwave around that.</p>
+      <ul class="list">
+        <li>Nobody can message you until you accept</li>
+        <li>Your location, distance and phone number are never shown</li>
+        <li>Your location is deleted as soon as Discoverable ends</li>
+        <li>If you decline someone, they're never told</li>
+        <li>No ads, and we don't sell your data</li>
+      </ul>
+    </div>
+    <div class="lock">
+      <div class="ic">🔒</div>
+      <h3>End-to-end encrypted</h3>
+      <p>Messages, photos, voice notes and files are locked on your phone and only unlock on the phones of the people in the chat. We can't read them, and nobody who gets into our servers can either.</p>
+    </div>
+  </div>
+</section>
+
+<section class="soft">
+  <div class="wrap">
+    <h2>Running an event?</h2>
+    <p class="lead">Fests, concerts, conferences and college events can use Pocketwave to help people meet. Create a group, show it to everyone at the venue, and approve who joins. <a href="mailto:support@pocketwave.app?subject=Pocketwave%20for%20events">Get in touch</a>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Questions</h2>
+    <details><summary>Is Pocketwave free?</summary><p>Yes. No ads, no subscription.</p></details>
+    <details><summary>Can people see where I am?</summary><p>No. Others only see that you're nearby, never a map, a distance or your exact spot. Your location is only used while Discoverable is on, then deleted.</p></details>
+    <details><summary>Who can message me?</summary><p>Only people whose invite you've accepted, or people whose QR code you've scanned. Being in the same group doesn't open a private chat.</p></details>
+    <details><summary>What if I change phones?</summary><p>Set a backup PIN in Privacy settings. On your new phone, sign in and enter the PIN to get your chats back.</p></details>
+    <details><summary>Is there an iPhone app?</summary><p>Not yet. Pocketwave is on Android for now.</p></details>
+    <details><summary>Who can use it?</summary><p>Anyone aged 18 or over.</p></details>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Your next friend might be in the same room.</h2>
+    <p>Free for Android.</p>
+    <a class="btn" href="/download">⬇ Download Pocketwave</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>© 2026 Pocketwave · Sankarankovil, Tamil Nadu</div>
+    <div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete-account">Delete account</a><a href="mailto:support@pocketwave.app">support@pocketwave.app</a></div>
+  </div>
+</footer>
+</body>
+</html>
