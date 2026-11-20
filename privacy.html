@@ -47,6 +47,10 @@
 <h3>Connections, groups and games</h3>
 <p>We store invites, connections, blocks, group memberships and roles, join requests, and games (moves, scores and results). Games are not end-to-end encrypted. Invites expire after seven days. If someone declines you, they aren't shown again for 30 days, and we never tell you that they declined.</p>
 
+<h3>Sports and match chat</h3>
+<p>The Sports tab shows cricket scores from CricketData.org. Our server fetches the scores; your phone never contacts them, so they don't learn anything about you.</p>
+<p>Match chats are public and <strong>not</strong> end-to-end encrypted. Anyone watching the match can read what you post there. When you first open Sports you choose how you appear: with your first name and photo, or with a nickname and an emoji. If you pick a nickname, other people can't see who you are, but we still link your messages to your account so reports, blocks and bans work. We also count the reactions you tap (🔥, 👏 and so on), but not who tapped them.</p>
+
 <h3>Notifications</h3>
 <p>To send notifications we keep a push token for your phone. Encrypted messages travel to your phone still locked, and your phone unlocks them to show the text. If you'd rather not see message text on your lock screen, turn off <strong>Show message text in notifications</strong> in Privacy settings. Notifications pass through Expo's push service and Google's Firebase Cloud Messaging.</p>
 
@@ -63,6 +67,7 @@
 <tr><td>Supabase</td><td>Database, sign-in and file storage. Our project is hosted in Mumbai, India.</td></tr>
 <tr><td>Google</td><td>"Continue with Google" sign-in, and Firebase Cloud Messaging for notifications</td></tr>
 <tr><td>Expo (650 Industries)</td><td>Builds the app and relays push notifications</td></tr>
+<tr><td>CricketData.org</td><td>Cricket scores. They receive no information about you.</td></tr>
 <tr><td>GitHub</td><td>Hosts this website</td></tr>
 </table>
 <p>Notifications may pass through servers outside India. For encrypted messages, what passes through is locked.</p>
@@ -73,6 +78,7 @@
 <li><strong>Location:</strong> until Discoverable ends (it's checked every five minutes).</li>
 <li><strong>Messages and files:</strong> until you or the sender delete them, the chat or group is deleted, or the account is deleted. "Delete for everyone" removes the content from our server.</li>
 <li><strong>Your account:</strong> until you delete it. Deleting it removes your profile, photos, the messages and files you sent, your keys and backup, and your memberships. Messages other people sent you stay on their phones.</li>
+<li><strong>Match chat:</strong> deleted 1 hour after the match ends. Reported messages are kept until we review them; messages we remove are kept hidden for 180 days in case the law requires them, then deleted.</li>
 <li><strong>Reports:</strong> as long as we need them to deal with the problem and keep people safe.</li>
 <li><strong>Crash reports:</strong> 30 days.</li>
 <li><strong>Database backups:</strong> overwritten within 30 days.</li>
