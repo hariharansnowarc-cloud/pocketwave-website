@@ -8,6 +8,8 @@ header nav{margin-top:6px;font-size:14px}
 header nav a{font-size:14px;font-weight:500;margin-right:16px;opacity:.9}
 main{max-width:760px;margin:0 auto;padding:24px 20px 60px}
 h1{font-size:28px;margin:8px 0 4px}
+h3{font-size:16px;margin:20px 0 6px}
+ol li,ul li{margin:4px 0}
 h2{font-size:20px;margin:32px 0 8px;color:var(--brand)}
 .meta{color:var(--muted);font-size:14px}
 .box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin:16px 0}
