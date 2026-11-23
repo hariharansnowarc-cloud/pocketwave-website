@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<title>Marketplace · Pocketwave</title>
+<style>
+  main{max-width:1000px}
+  .hidden{display:none!important}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .grow{flex:1}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0}
+  .tabs button{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+  .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  button,.btn{font:inherit;font-size:14px;font-weight:600;border:0;border-radius:10px;padding:8px 14px;cursor:pointer;background:var(--brand);color:#fff}
+  button.secondary{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+  button.danger{background:#C62828}
+  button:disabled{opacity:.5;cursor:default}
+  input,select,textarea{font:inherit;font-size:14px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);width:100%}
+  textarea{min-height:64px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin:12px 0}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+  .ok{color:#2E7D32}.warn{color:#B26A00}.bad{color:#C62828}
+  .small{font-size:13px;color:var(--muted)}
+  .thumb{width:96px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:var(--bg)}
+  table td input{width:90px}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:9}
+</style>
+</head>
+<body>
+<header><a href="/">Pocketwave</a><nav><span style="opacity:.9">Marketplace admin</span></nav></header>
+<main>
+
+<!-- Signed out -->
+<section id="login" class="hidden">
+  <h1>Marketplace</h1>
+  <p class="meta">For Pocketwave admins only. Sign in with the Google account you use in the app.</p>
+  <p><button id="googleBtn">Continue with Google</button></p>
+</section>
+
+<!-- Signed in but not an admin -->
+<section id="denied" class="hidden">
+  <h1>No access</h1>
+  <p id="deniedMsg">This account isn't a Pocketwave admin.</p>
+  <p><button class="secondary" data-signout>Sign out</button></p>
+</section>
+
+<!-- Admin -->
+<section id="app" class="hidden">
+  <div class="bar">
+    <h1 class="grow" style="margin:0">Marketplace</h1>
+    <span class="small" id="who"></span>
+    <button class="secondary" data-signout>Sign out</button>
+  </div>
+  <div class="tabs">
+    <button data-tab="day" class="on">Day</button>
+    <button data-tab="ads">Ads</button>
+    <button data-tab="book">Book a spot</button>
+    <button data-tab="bids">Bids &amp; auctions</button>
+    <button data-tab="settings">Prices &amp; settings</button>
+  </div>
+
+  <!-- DAY -->
+  <div data-panel="day">
+    <div class="row">
+      <input type="date" id="dayPick" style="width:auto">
+      <button class="secondary" id="dayToday">Today</button>
+      <button class="secondary" id="dayReload">Refresh</button>
+    </div>
+    <div class="card" id="daySummary"></div>
+    <div id="dayList"></div>
+  </div>
+
+  <!-- ADS -->
+  <div data-panel="ads" class="hidden">
+    <div class="card">
+      <h3 id="adFormTitle" style="margin-top:0">New ad</h3>
+      <input type="hidden" id="adId">
+      <div class="grid">
+        <div><label>Advertiser *</label><input id="adAdvertiser" maxlength="60"></div>
+        <div><label>Title *</label><input id="adTitle" maxlength="60"></div>
+        <div><label>Category</label><input id="adCategory" placeholder="Food, Education…"></div>
+        <div><label>Advertiser contact (only you see this)</label><input id="adContact"></div>
+      </div>
+      <label>Offer text</label><textarea id="adOffer" maxlength="200"></textarea>
+      <div class="grid">
+        <div><label>Button</label>
+          <select id="adAction">
+            <option value="none">No button</option>
+            <option value="link">Visit website</option>
+            <option value="call">Call</option>
+            <option value="code">Copy coupon code</option>
+            <option value="directions">Directions</option>
+          </select></div>
+        <div><label id="adValueLabel">Button value</label><input id="adValue"></div>
+        <div><label>Button text (optional)</label><input id="adLabel" maxlength="20" placeholder="Order now"></div>
+      </div>
+      <div class="grid">
+        <div><label>Picture (16:9, under 2 MB)</label><input type="file" id="adImageFile" accept="image/jpeg,image/png,image/webp"><input id="adImage" placeholder="or paste https://…" style="margin-top:6px"></div>
+        <div><label>Logo (square, optional)</label><input type="file" id="adLogoFile" accept="image/jpeg,image/png,image/webp"><input id="adLogo" placeholder="or paste https://…" style="margin-top:6px"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--text);margin-top:14px"><input type="checkbox" id="adApproved" style="width:auto"> Approved (only approved ads are shown or can bid)</label>
+      <p class="row"><button id="adSave">Save ad</button><button class="secondary" id="adClear">Clear</button></p>
+      <p class="small">Not allowed: betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, misleading offers.</p>
+    </div>
+    <div id="adList"></div>
+  </div>
+
+  <!-- BOOK -->
+  <div data-panel="book" class="hidden">
+    <div class="card">
+      <h3 style="margin-top:0">Book a spot at a fixed price</h3>
+      <div class="grid">
+        <div><label>Day</label><input type="date" id="bkDay"></div>
+        <div><label>Row</label><select id="bkRow" data-row></select></div>
+        <div><label>Position (1 = top)</label><select id="bkPos"></select></div>
+        <div data-needs="state"><label>State</label><select id="bkState" data-states></select></div>
+        <div data-needs="city"><label>City</label><input id="bkCity" placeholder="Chennai"></div>
+        <div><label>Ad</label><select id="bkAd" data-ads></select></div>
+        <div><label>Price ₹ (empty = price list)</label><input type="number" id="bkPrice" min="0"></div>
+      </div>
+      <p class="small" id="bkHint"></p>
+      <p><button id="bkSave">Book</button></p>
+    </div>
+  </div>
+
+  <!-- BIDS -->
+  <div data-panel="bids" class="hidden">
+    <div class="card">
+      <div class="row"><input type="date" id="bidDay" style="width:auto"><button class="secondary" id="bidReload">Refresh</button>
+        <span class="grow"></span><button id="bidRun">Run auctions for this day now</button></div>
+      <p class="small" id="auctionState"></p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Add a bid (for testing, or from an advertiser's email)</h3>
+      <div class="grid">
+        <div><label>Row</label><select id="bidRow" data-row></select></div>
+        <div data-needs="state"><label>State</label><select id="bidState" data-states></select></div>
+        <div data-needs="city"><label>City</label><input id="bidCity" placeholder="Chennai"></div>
+        <div><label>Ad</label><select id="bidAd" data-ads></select></div>
+        <div><label>Most they'll pay for the day ₹</label><input type="number" id="bidAmount" min="1"></div>
+      </div>
+      <p><button id="bidSave">Add bid</button></p>
+      <p class="small">How it works: highest bid gets the best free position it can afford (each position has a minimum price), and pays ₹1 more than the next bid, never less than the minimum and never more than its own bid. Spots booked by hand are kept. Only approved ads take part.</p>
+    </div>
+    <div id="bidList"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div data-panel="settings" class="hidden">
+    <div class="card">
+      <h3 style="margin-top:0">Settings</h3>
+      <div class="grid">
+        <div><label>Contact email shown in the app</label><input id="stEmail"></div>
+        <div><label>Auctions close at (hour, India time)</label><input type="number" id="stHour" min="0" max="23"></div>
+        <div><label>Max spots per advertiser per row</label><input type="number" id="stCap" min="1" max="10"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--text);margin-top:14px"><input type="checkbox" id="stAuctions" style="width:auto"> Run auctions automatically every evening for the next day</label>
+      <p><button id="stSave">Save settings</button></p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Price list (₹ per day) – also the minimum bid</h3>
+      <div id="priceTable"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Special days (prices multiply)</h3>
+      <div class="grid">
+        <div><label>Day</label><input type="date" id="spDay"></div>
+        <div><label>Multiplier</label><input type="number" id="spMult" step="0.5" min="1" max="10" value="2"></div>
+        <div><label>Note</label><input id="spNote" placeholder="IPL final"></div>
+      </div>
+      <p><button id="spSave">Add special day</button></p>
+      <div id="spList"></div>
+    </div>
+  </div>
+</section>
+
+<p id="loading" class="meta">Loading…</p>
+</main>
+<div id="toast" class="hidden"></div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+// The public Supabase address and anon key (the same ones the app uses; they are safe to be public).
+// Everything on this page is checked in the database: only Pocketwave admins can read or change anything.
+const SUPABASE_URL = 'PASTE_SUPABASE_URL_HERE';
+const SUPABASE_ANON_KEY = 'PASTE_SUPABASE_ANON_KEY_HERE';
+
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true } });
+const $ = (id) => document.getElementById(id);
+const ROWS = { national: 'National', regional: 'Regional (state)', local: 'Near you (city)' };
+let cfg = null;
+let ads = [];
+
+// ---------- small helpers ----------
+function toast(msg, bad = false) {
+  const t = $('toast'); t.textContent = msg; t.style.background = bad ? '#C62828' : '#222';
+  t.classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), 3500);
+}
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v != null) e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+const indiaToday = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+const addDays = (d, n) => new Date(new Date(d + 'T00:00:00Z').getTime() + n * 86400e3).toISOString().slice(0, 10);
+function errText(e) {
+  const m = e?.message || String(e);
+  if (m.includes('not_allowed')) return 'Not allowed: this account is not an admin.';
+  if (m.includes('spot_taken') || m.includes('market_bookings_slot_idx')) return 'That spot is already booked for that day.';
+  if (m.includes('market_ads_check1')) return 'Website links must start with https://';
+  if (m.includes('market_ads_check')) return 'This button needs a value (link, phone, code or place).';
+  if (m.includes('market_bookings_check') || m.includes('market_bids_check')) return 'Regional needs a state; Near you needs a state and a city.';
+  return m;
+}
+async function rpc(name, args) {
+  const { data, error } = await sb.rpc(name, args);
+  if (error) throw error;
+  return data;
+}
+function show(id) { for (const s of ['login', 'denied', 'app', 'loading']) $(s).classList.toggle('hidden', s !== id); }
+
+// ---------- sign in ----------
+$('googleBtn').onclick = () => sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/marketplace/' } });
+document.querySelectorAll('[data-signout]').forEach((b) => (b.onclick = async () => { await sb.auth.signOut(); location.reload(); }));
+
+let starting = false;
+async function start() {
+  if (starting || cfg) return;
+  starting = true;
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { starting = false; return show('login'); }
+  try {
+    cfg = await rpc('admin_market_config');
+  } catch (e) {
+    starting = false;
+    const msg = errText(e);
+    if (!msg.startsWith('Not allowed')) $('deniedMsg').textContent = 'Something went wrong: ' + msg + ' (has the Market SQL been run in Supabase?)';
+    return show('denied');
+  }
+  $('who').textContent = session.user.email ?? '';
+  show('app');
+  setupForms();
+  await loadAds();
+  $('dayPick').value = cfg.today;
+  $('bkDay').value = cfg.today;
+  $('bidDay').value = addDays(cfg.today, 1);
+  loadDay();
+}
+sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN') start(); });
+start();
+
+// ---------- tabs ----------
+document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+  ({ day: loadDay, ads: loadAds, bids: loadBids, settings: loadSettings, book: updateBookHint })[b.dataset.tab]?.();
+}));
+
+// ---------- shared form bits ----------
+function setupForms() {
+  document.querySelectorAll('[data-row]').forEach((s) => {
+    s.replaceChildren(...Object.entries(ROWS).map(([k, v]) => el('option', { value: k }, v)));
+    s.onchange = () => { toggleNeeds(s); updateBookHint(); };
+    toggleNeeds(s);
+  });
+  document.querySelectorAll('[data-states]').forEach((s) => s.replaceChildren(...cfg.states.map((st) => el('option', { value: st }, st))));
+  $('bkPos').replaceChildren(...Array.from({ length: 10 }, (_, i) => el('option', { value: i + 1 }, '#' + (i + 1))));
+  ['bkPos', 'bkDay'].forEach((id) => ($(id).onchange = updateBookHint));
+  const tn = cfg.states.indexOf('Tamil Nadu');
+  document.querySelectorAll('[data-states]').forEach((s) => (s.selectedIndex = Math.max(0, tn)));
+}
+function toggleNeeds(select) {
+  const card = select.closest('.card');
+  const row = select.value;
+  card.querySelector('[data-needs="state"]')?.classList.toggle('hidden', row === 'national');
+  card.querySelector('[data-needs="city"]')?.classList.toggle('hidden', row !== 'local');
+}
+function fillAdSelects() {
+  const approved = ads.filter((a) => a.approved);
+  document.querySelectorAll('[data-ads]').forEach((s) => s.replaceChildren(
+    ...(approved.length ? approved.map((a) => el('option', { value: a.id }, `${a.advertiser} – ${a.title}`)) : [el('option', { value: '' }, 'No approved ads yet')])));
+}
+function where(r) {
+  return r.row_kind === 'national' ? '🇮🇳 National' : r.row_kind === 'regional' ? `🗺️ ${r.state}` : `📍 ${r.city}, ${r.state}`;
+}
+
+// ---------- DAY ----------
+$('dayToday').onclick = () => { $('dayPick').value = indiaToday(); loadDay(); };
+$('dayReload').onclick = loadDay;
+$('dayPick').onchange = loadDay;
+async function loadDay() {
+  try {
+    const d = await rpc('admin_market_day', { p_day: $('dayPick').value });
+    $('daySummary').replaceChildren(
+      el('div', { class: 'row' }, el('strong', {}, d.day), el('span', { class: 'pill' }, `${d.booked} spots booked`),
+        el('span', { class: 'pill' }, `auctions ${d.auctions_enabled ? 'ON' : 'off'}`), d.open_bids ? el('span', { class: 'pill' }, `${d.open_bids} open bids`) : null),
+      el('p', { class: 'small' }, `Paid ${inr(d.revenue_paid)} · not paid yet ${inr(d.revenue_unpaid)}`,
+        d.pending_approval ? ` · ${d.pending_approval} ad(s) waiting for approval` : ''));
+    $('dayList').replaceChildren(...(d.bookings.length ? d.bookings.map((b) => el('div', { class: 'card' },
+      el('div', { class: 'row' }, el('strong', {}, `${where(b)} #${b.position}`), el('span', { class: 'grow' }),
+        el('span', { class: b.paid ? 'ok' : 'warn' }, b.paid ? '✅ paid' : '⏳ not paid'), el('strong', {}, inr(b.price_inr))),
+      el('div', {}, `${b.advertiser} – ${b.title}`, b.approved ? '' : el('span', { class: 'bad' }, '  (not approved: hidden)')),
+      el('div', { class: 'small' }, `👁 ${b.views} views · 👆 ${b.taps} taps · ${b.views ? Math.round((b.taps / b.views) * 100) + '% tap rate' : '–'}`),
+      el('div', { class: 'row', style: 'margin-top:8px' },
+        el('button', { class: 'secondary', onclick: () => act('admin_market_update_booking', { p_id: b.id, p_paid: !b.paid }, loadDay) }, b.paid ? 'Mark not paid' : 'Mark paid'),
+        el('button', { class: 'danger', onclick: () => confirm('Remove this booking?') && act('admin_market_delete_booking', { p_id: b.id }, loadDay) }, 'Remove'))))
+      : [el('p', { class: 'small' }, 'No bookings this day. Empty spots show Pocketwave\'s own cards.')]));
+  } catch (e) { toast(errText(e), true); }
+}
+async function act(name, args, then) {
+  try { await rpc(name, args); toast('Done'); then?.(); } catch (e) { toast(errText(e), true); }
+}
+
+// ---------- ADS ----------
+const valueLabels = { none: 'Button value', link: 'Website (https://…)', call: 'Phone number', code: 'Coupon code', directions: 'Place or address' };
+$('adAction').onchange = () => ($('adValueLabel').textContent = valueLabels[$('adAction').value]);
+async function loadAds() {
+  try {
+    ads = await rpc('admin_market_ads');
+    fillAdSelects();
+    $('adList').replaceChildren(...ads.map((a) => el('div', { class: 'card' },
+      el('div', { class: 'row' },
+        a.image_url ? el('img', { class: 'thumb', src: a.image_url, alt: '' }) : null,
+        el('div', { class: 'grow' }, el('strong', {}, a.title), el('div', { class: 'small' }, `${a.advertiser}${a.category ? ' · ' + a.category : ''} · ${a.action}${a.action_value ? ': ' + a.action_value : ''}`),
+          el('div', { class: 'small' }, `${a.bookings} bookings · ${a.views} views · ${a.taps} taps`)),
+        el('span', { class: a.approved ? 'ok' : 'warn' }, a.approved ? 'Approved' : 'Not approved')),
+      a.offer ? el('p', { class: 'small', style: 'margin:6px 0' }, a.offer) : null,
+      el('div', { class: 'row' },
+        el('button', { class: 'secondary', onclick: () => editAd(a) }, 'Edit'),
+        el('button', { class: 'danger', onclick: () => confirm('Delete this ad and all its bookings?') && act('admin_market_delete_ad', { p_id: a.id }, loadAds) }, 'Delete')))));
+    if (!ads.length) $('adList').replaceChildren(el('p', { class: 'small' }, 'No ads yet.'));
+  } catch (e) { toast(errText(e), true); }
+}
+function editAd(a) {
+  $('adFormTitle').textContent = 'Edit ad';
+  $('adId').value = a.id; $('adAdvertiser').value = a.advertiser; $('adTitle').value = a.title; $('adOffer').value = a.offer ?? '';
+  $('adCategory').value = a.category ?? ''; $('adContact').value = a.contact ?? ''; $('adAction').value = a.action;
+  $('adValue').value = a.action_value ?? ''; $('adLabel').value = a.action_label ?? ''; $('adImage').value = a.image_url ?? '';
+  $('adLogo').value = a.logo_url ?? ''; $('adApproved').checked = a.approved; $('adAction').onchange();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+$('adClear').onclick = () => {
+  $('adFormTitle').textContent = 'New ad';
+  ['adId', 'adAdvertiser', 'adTitle', 'adOffer', 'adCategory', 'adContact', 'adValue', 'adLabel', 'adImage', 'adLogo'].forEach((i) => ($(i).value = ''));
+  $('adImageFile').value = ''; $('adLogoFile').value = ''; $('adAction').value = 'none'; $('adApproved').checked = false; $('adAction').onchange();
+};
+async function upload(fileInput) {
+  const f = fileInput.files[0];
+  if (!f) return null;
+  if (f.size > 2 * 1024 * 1024) throw new Error('Picture is over 2 MB');
+  const path = `ads/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+  const { error } = await sb.storage.from('market').upload(path, f, { contentType: f.type, upsert: false });
+  if (error) throw error;
+  return sb.storage.from('market').getPublicUrl(path).data.publicUrl;
+}
+$('adSave').onclick = async () => {
+  const btn = $('adSave'); btn.disabled = true;
+  try {
+    if (!$('adAdvertiser').value.trim() || !$('adTitle').value.trim()) throw new Error('Advertiser and title are needed');
+    const img = await upload($('adImageFile')); if (img) $('adImage').value = img;
+    const logo = await upload($('adLogoFile')); if (logo) $('adLogo').value = logo;
+    await rpc('admin_market_save_ad', { p: {
+      id: $('adId').value || null, advertiser: $('adAdvertiser').value.trim(), title: $('adTitle').value.trim(),
+      offer: $('adOffer').value.trim(), category: $('adCategory').value.trim(), contact: $('adContact').value.trim(),
+      action: $('adAction').value, action_value: $('adValue').value.trim(), action_label: $('adLabel').value.trim(),
+      image_url: $('adImage').value.trim(), logo_url: $('adLogo').value.trim(), approved: $('adApproved').checked } });
+    toast('Ad saved'); $('adClear').onclick(); loadAds();
+  } catch (e) { toast(errText(e), true); } finally { btn.disabled = false; }
+};
+
+// ---------- BOOK ----------
+function minPrice(row, pos, day) {
+  const p = cfg.prices.find((x) => x.row_kind === row && x.position === Number(pos));
+  const sp = cfg.special_days.find((x) => x.day === day);
+  return p ? Math.round(p.price_inr * (sp ? Number(sp.multiplier) : 1)) : 0;
+}
+function updateBookHint() {
+  if (!cfg) return;
+  const day = $('bkDay').value;
+  const sp = cfg.special_days.find((x) => x.day === day);
+  $('bkHint').textContent = `Price list for this spot: ${inr(minPrice($('bkRow').value, $('bkPos').value, day))}${sp ? ` (special day ×${sp.multiplier}${sp.note ? ': ' + sp.note : ''})` : ''}`;
+}
+$('bkSave').onclick = async () => {
+  const row = $('bkRow').value;
+  if (!$('bkAd').value) return toast('Add and approve an ad first', true);
+  try {
+    await rpc('admin_market_book', { p_day: $('bkDay').value, p_row: row, p_position: Number($('bkPos').value), p_ad: $('bkAd').value,
+      p_state: row === 'national' ? null : $('bkState').value, p_city: row === 'local' ? $('bkCity').value.trim() : null,
+      p_price: $('bkPrice').value ? Number($('bkPrice').value) : null });
+    toast('Booked'); $('dayPick').value = $('bkDay').value;
+  } catch (e) { toast(errText(e), true); }
+};
+
+// ---------- BIDS ----------
+$('bidReload').onclick = loadBids; $('bidDay').onchange = loadBids;
+async function loadBids() {
+  try {
+    const day = $('bidDay').value;
+    const [bids, c] = await Promise.all([rpc('admin_market_bids', { p_day: day }), rpc('admin_market_config')]);
+    cfg = c;
+    const s = cfg.settings;
+    $('auctionState').textContent = s.auctions_enabled
+      ? `Automatic auctions are ON: they close every day at ${s.auction_close_hour_ist}:00 India time for the next day.`
+      : 'Automatic auctions are OFF. Use "Run auctions for this day now" to test.';
+    $('bidList').replaceChildren(...(bids.length ? bids.map((b) => el('div', { class: 'card' },
+      el('div', { class: 'row' }, el('strong', {}, `${where(b)} · ${b.advertiser} – ${b.title}`), el('span', { class: 'grow' }),
+        el('span', { class: b.status === 'won' ? 'ok' : b.status === 'open' ? 'warn' : 'small' }, b.status.toUpperCase())),
+      el('div', { class: 'small' }, `Bid ${inr(b.amount_inr)}`, b.status === 'won' ? ` · won #${b.won_position} · pays ${inr(b.price_inr)}` : '', b.note ? ` · ${b.note}` : '', b.approved ? '' : ' · ad not approved'),
+      b.status === 'open' ? el('div', { style: 'margin-top:8px' }, el('button', { class: 'secondary', onclick: () => act('admin_market_cancel_bid', { p_id: b.id }, loadBids) }, 'Cancel bid')) : null))
+      : [el('p', { class: 'small' }, 'No bids for this day.')]));
+  } catch (e) { toast(errText(e), true); }
+}
+$('bidSave').onclick = async () => {
+  const row = $('bidRow').value;
+  if (!$('bidAd').value) return toast('Add and approve an ad first', true);
+  if (!Number($('bidAmount').value)) return toast('Enter an amount', true);
+  try {
+    await rpc('admin_market_add_bid', { p_day: $('bidDay').value, p_row: row, p_ad: $('bidAd').value, p_amount: Number($('bidAmount').value),
+      p_state: row === 'national' ? null : $('bidState').value, p_city: row === 'local' ? $('bidCity').value.trim() : null });
+    toast('Bid added'); $('bidAmount').value = ''; loadBids();
+  } catch (e) { toast(errText(e), true); }
+};
+$('bidRun').onclick = async () => {
+  if (!confirm(`Close all open bids for ${$('bidDay').value} now? Winners get booked.`)) return;
+  try { const n = await rpc('admin_market_run_auctions', { p_day: $('bidDay').value }); toast(`${n} spot(s) won`); loadBids(); }
+  catch (e) { toast(errText(e), true); }
+};
+
+// ---------- SETTINGS ----------
+async function loadSettings() {
+  try {
+    cfg = await rpc('admin_market_config');
+    const s = cfg.settings;
+    $('stEmail').value = s.contact_email; $('stHour').value = s.auction_close_hour_ist; $('stCap').value = s.max_spots_per_advertiser; $('stAuctions').checked = s.auctions_enabled;
+    const table = el('table', {}, el('tr', {}, el('th', {}, 'Position'), ...Object.values(ROWS).map((r) => el('th', {}, r))),
+      ...Array.from({ length: 10 }, (_, i) => el('tr', {}, el('td', {}, '#' + (i + 1)), ...Object.keys(ROWS).map((k) => {
+        const p = cfg.prices.find((x) => x.row_kind === k && x.position === i + 1);
+        const inp = el('input', { type: 'number', min: '0', value: p?.price_inr ?? 0 });
+        inp.onchange = () => act('admin_market_set_price', { p_row: k, p_position: i + 1, p_price: Number(inp.value) });
+        return el('td', {}, inp);
+      }))));
+    $('priceTable').replaceChildren(table, el('p', { class: 'small' }, 'Changes save as soon as you leave a box.'));
+    $('spList').replaceChildren(...(cfg.special_days.length ? cfg.special_days.map((d) => el('div', { class: 'row', style: 'margin:6px 0' },
+      el('span', {}, `${d.day} · ×${d.multiplier}${d.note ? ' · ' + d.note : ''}`),
+      el('button', { class: 'secondary', onclick: () => act('admin_market_special_day', { p_day: d.day, p_multiplier: null }, loadSettings) }, 'Remove')))
+      : [el('p', { class: 'small' }, 'No special days coming up.')]));
+  } catch (e) { toast(errText(e), true); }
+}
+$('stSave').onclick = () => act('admin_market_save_settings', { p: {
+  contact_email: $('stEmail').value.trim(), auctions_enabled: $('stAuctions').checked,
+  auction_close_hour_ist: Number($('stHour').value), max_spots_per_advertiser: Number($('stCap').value) } }, loadSettings);
+$('spSave').onclick = () => {
+  if (!$('spDay').value) return toast('Pick a day', true);
+  act('admin_market_special_day', { p_day: $('spDay').value, p_multiplier: Number($('spMult').value), p_note: $('spNote').value.trim() || null }, loadSettings);
+};
+</script>
+</body>
+</html>
