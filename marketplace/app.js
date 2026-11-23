@@ -474,6 +474,10 @@ function marketPanel(m, ads, reload) {
     el('div', { class: 'card' },
       el('h3', {}, m.my_bid ? 'Your bid' : 'Place your bid'),
       el('div', { class: 'grid' }, field('Ad', adSel), field(`Most you'll pay for the day (at least ${inr(lowest)})`, amount)),
+      !m.open || !ads.length ? el('p', { class: 'warn' },
+        !me.bidding_open ? '⏸️ Bidding isn\'t open yet. You can prepare your ads and check prices now.'
+          : !m.open ? `⏰ Bidding for ${m.day} closed at ${when(m.deadline)}. Pick a later day.`
+          : '📝 You need an approved ad first (see "My ads").') : null,
       el('p', { class: 'row' }, place,
         m.my_bid && m.open ? el('button', { class: 'secondary', onclick: () => confirm('Cancel your bid?') && act('market_adv_cancel_bid', { p_id: m.my_bid.id }, reload, 'Bid cancelled') }, 'Cancel bid') : null),
       el('p', { class: 'small' }, 'Bids are sealed: nobody else sees them. The highest bid gets the top free spot, the next bid the next spot, and so on. You pay ₹1 more than the bid below yours (at least the row minimum), never more than your own bid. Suggested prices show what each spot is worth; bid more to aim higher.'),
