@@ -144,17 +144,20 @@ function stateSelect(value, blank = '— choose —') {
 function setStatus(text) { $('status').textContent = text ?? ''; $('status').classList.toggle('hidden', !text); }
 
 /** Tabs: [{ key, label, render(container) }] */
-function tabs(list, start, { sub = false, onOpen } = {}) {
+const hashParts = () => decodeURIComponent(location.hash.slice(1)).split('/');
+function setHash(...parts) { history.replaceState(null, '', '#' + parts.filter(Boolean).join('/')); }
+function tabs(list, start, { sub = false, onOpen, hash = false } = {}) {
   const bar = el('div', { class: 'tabs' + (sub ? ' sub' : ''), role: 'tablist' });
   const body = el('div');
   const open = (t) => {
     [...bar.children].forEach((b) => { const on = b.dataset.key === t.key; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
     onOpen?.(t.key);
+    if (hash && hashParts()[0] !== t.key) setHash(t.key);
     fill(body, el('p', { class: 'small' }, 'Loading…'));
     Promise.resolve(t.render(body)).catch((e) => fill(body, note(errText(e), 'bad', '⚠️')));
   };
   list.forEach((t) => bar.append(el('button', { 'data-key': t.key, role: 'tab', onclick: () => open(t) }, t.label)));
-  open(list.find((t) => t.key === start) ?? list[0]);
+  open((hash && list.find((t) => t.key === hashParts()[0])) || list.find((t) => t.key === start) || list[0]);
   return [bar, body];
 }
 
@@ -332,8 +335,10 @@ function chartCard(title, sub, chart) { return el('div', { class: 'card' }, el('
 // Start
 // ---------------------------------------------------------------------------
 
+let shownFor = null; // user id the page was last built for
 async function main() {
   const { data: { session } } = await sb.auth.getSession();
+  shownFor = session?.user?.id ?? null;
   if (!session) return landing();
   try {
     me = await rpc('market_whoami');
@@ -367,7 +372,12 @@ async function start() {
   started = true;
   await main();
 }
-sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN') { started = false; start(); } });
+// Supabase reports SIGNED_IN again whenever you come back to this browser tab. Only rebuild the
+// page when a different person signed in (or someone signed in on the landing page).
+sb.auth.onAuthStateChange((ev, session) => {
+  if (ev === 'SIGNED_IN' && session?.user?.id && session.user.id !== shownFor) { started = false; start(); }
+  if (ev === 'SIGNED_OUT' && shownFor) location.reload();
+});
 start();
 
 // ---------------------------------------------------------------------------
@@ -469,7 +479,7 @@ function advertiserView() {
     { key: 'bids', label: '📨 My bids', render: advBids },
     { key: 'results', label: '📈 Results', render: advResults },
     { key: 'account', label: '🏢 Account', render: (c) => fill(c, businessForm(me.advertiser, { register: false })) },
-  ]);
+  ], 'bid', { hash: true });
 }
 
 // ---- Ads (shared form for advertisers and admins) ----
@@ -728,7 +738,7 @@ function adminView() {
     { key: 'places', label: '📍 Places', render: admPlaces },
     { key: 'settings', label: '⚙️ Prices & settings', render: admSettings },
     { key: 'activity', label: '🕘 Activity log', render: admActivity },
-  ], 'dash');
+  ], 'dash', { hash: true });
   adminOpen = (key) => bar.querySelector(`[data-key="${key}"]`)?.click();
   return [bar, body];
 }
@@ -1071,6 +1081,9 @@ const RANGES = {
 const dash = { range: '30', from: null, to: null, row: '', state: '', adv: '', tab: 'overview', data: null, app: null, key: '' };
 
 async function admDashboard(c) {
+  const sub = hashParts()[1];
+  if (hashParts()[0] === 'dash' && sub && ['overview', 'revenue', 'spots', 'places', 'advertisers', 'ads', 'bids', 'audience', 'app'].includes(sub)) dash.tab = sub;
+  else setHash('dash', dash.tab);
   [dash.from, dash.to] = dash.range === 'custom' && dash.from ? [dash.from, dash.to] : RANGES[dash.range][1]();
   const range = el('select', {}, Object.entries(RANGES).map(([k, [label]]) => el('option', { value: k, selected: k === dash.range }, label)));
   const from = el('input', { type: 'date', value: dash.from }), to = el('input', { type: 'date', value: dash.to });
@@ -1104,7 +1117,7 @@ async function admDashboard(c) {
     ['ads', 'Ads'], ['bids', 'Bids'], ['audience', 'Audience'], ['app', 'App'],
   ];
   const bar = el('div', { class: 'tabs sub', role: 'tablist' }, subTabs.map(([k, label]) => el('button', { 'data-key': k, role: 'tab', class: k === dash.tab ? 'on' : '',
-    onclick: (ev) => { dash.tab = k; [...bar.children].forEach((b) => b.classList.toggle('on', b === ev.currentTarget)); renderDash(body); } }, label)));
+    onclick: (ev) => { dash.tab = k; setHash('dash', k); [...bar.children].forEach((b) => b.classList.toggle('on', b === ev.currentTarget)); renderDash(body); } }, label)));
 
   fill(c,
     el('div', { class: 'filters' },
@@ -1135,7 +1148,7 @@ function dashOverview(d, body) {
   const todo = [
     f.pending ? kpi('Advertisers to review', num(f.pending), 'Waiting for approval', () => adminOpen('advertisers')) : null,
     f.ads_pending ? kpi('Ads to review', num(f.ads_pending), 'Waiting for approval', () => adminOpen('ads')) : null,
-    k.unpaid ? kpi('Not paid yet', inr(k.unpaid), 'In this period', () => { dash.tab = 'revenue'; adminOpen('dash'); }) : null,
+    k.unpaid ? kpi('Not paid yet', inr(k.unpaid), 'In this period', () => { dash.tab = 'revenue'; setHash('dash', 'revenue'); adminOpen('dash'); }) : null,
   ].filter(Boolean);
   body.append(
     todo.length ? el('div', {}, el('h3', {}, 'Needs your attention'), el('div', { class: 'kpis' }, todo)) : null,
