@@ -2,7 +2,7 @@
 <header><a href="/">Pocketwave</a><nav><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete-account">Delete account</a></nav></header>
 <main>
 <h1>Privacy Policy</h1>
-<p class="meta">Last updated 20 November 2026</p>
+<p class="meta">Last updated 23 November 2026</p>
 
 <p>Pocketwave is a small app made in Sankarankovil, Tamil Nadu. It helps you meet people who are around you, at a fest, a concert or a mall, and then chat with them. We built it around one idea: nobody should be able to reach you unless you say yes, and nobody should be able to tell where you are.</p>
 
@@ -47,12 +47,20 @@
 <h3>Connections, groups and games</h3>
 <p>We store invites, connections, blocks, group memberships and roles, join requests, and games (moves, scores and results). Games are not end-to-end encrypted. Invites expire after seven days. If someone declines you, they aren't shown again for 30 days, and we never tell you that they declined.</p>
 
+<h3>Voice and video calls</h3>
+<p>Calls are only possible between people who are connected. The sound and picture go directly between the two phones and are end-to-end encrypted, so we can't hear or see them, and we don't record calls. When a direct connection isn't possible (some mobile networks), the encrypted stream passes through Cloudflare's relay, which can't unlock it either. The setup messages for a call are locked with the chat's key.</p>
+<p>We keep a call log: who called whom, voice or video, when, how long, and whether it was answered, missed or declined. You see your own log in the app under Calls. Incoming calls ring through a notification that can show over your lock screen; it shows the caller's first name.</p>
+
+<h3>Daily quiz and leaderboards</h3>
+<p>If you play the daily quiz we store your answers, score, time taken and streak. Leaderboards for India, your state and your town or district show your first name, your town and your score. You can switch off <strong>Show my name on leaderboards</strong>; others then see you as "Player". Your state and town come from the place you picked in the Market, never from your location. Games against the computer run only on your phone and nothing about them is sent to us. Game sounds are a setting on your phone.</p>
+
 <h3>Sports and match chat</h3>
 <p>The Sports tab shows cricket scores from CricketData.org. Our server fetches the scores; your phone never contacts them, so they don't learn anything about you.</p>
 <p>Match chats are public and <strong>not</strong> end-to-end encrypted. Anyone watching the match can read what you post there. When you first open Sports you choose how you appear: with your first name and photo, or with a nickname and an emoji. If you pick a nickname, other people can't see who you are, but we still link your messages to your account so reports, blocks and bans work. We also count the reactions you tap (🔥, 👏 and so on), but not who tapped them.</p>
 
 <h3>Market (ads)</h3>
 <p>Ads appear only in the Market tab, never in your chats, and only when you open it. We don't use ad networks or advertising IDs, and we don't share anything about you with advertisers.</p>
+<p>You can report an ad with "Report this ad"; we store your reason and which ad, and the advertiser never learns who reported it.</p>
 <p>If you pick your state and town or district for "Near you" deals, we store what you picked. We never use your location for ads. To count each ad fairly, we record that your account saw or tapped it that day; we delete that after 2 days. Advertisers only get totals (for example, "1,200 views, 80 taps"). Ads you save stay saved until you remove them or delete your account. When you tap an ad's button you go to the advertiser's website, phone or map, and their own privacy policy applies there.</p>
 
 <h3>If you advertise with us</h3>
@@ -62,7 +70,7 @@
 <p>To send notifications we keep a push token for your phone. Encrypted messages travel to your phone still locked, and your phone unlocks them to show the text. If you'd rather not see message text on your lock screen, turn off <strong>Show message text in notifications</strong> in Privacy settings. Notifications pass through Expo's push service and Google's Firebase Cloud Messaging.</p>
 
 <h3>Reports, feedback and crash reports</h3>
-<p>When you report a message, your phone sends us a copy of that one message (we can't read it any other way), along with the reason you chose. When you send feedback from the app, it comes with your name, app version and phone model. If the app crashes, it sends us the error, the screen it happened on, the app version and the phone model. Crash reports never include your messages or location, and we delete them after 30 days.</p>
+<p>When you report someone from their profile, a game or a call, we store who you reported, where, and when. When you report a message, your phone sends us a copy of that one message (we can't read it any other way), along with the reason you chose. When you send feedback from the app, it comes with your name, app version and phone model. If the app crashes, it sends us the error, the screen it happened on, the app version and the phone model. Crash reports never include your messages or location, and we delete them after 30 days.</p>
 
 <h3>What we don't collect</h3>
 <p>Your contacts or address book. Your location in the background. Advertising IDs, or any tracking for ads. Anything from other apps on your phone. The website pocketwave.app doesn't use cookies or analytics.</p>
@@ -74,6 +82,7 @@
 <tr><td>Supabase</td><td>Database, sign-in and file storage. Our project is hosted in Mumbai, India.</td></tr>
 <tr><td>Google</td><td>"Continue with Google" sign-in, and Firebase Cloud Messaging for notifications</td></tr>
 <tr><td>Expo (650 Industries)</td><td>Builds the app and relays push notifications</td></tr>
+<tr><td>Cloudflare</td><td>Relays encrypted call audio and video when phones can't connect directly. It can't unlock it.</td></tr>
 <tr><td>CricketData.org</td><td>Cricket scores. They receive no information about you.</td></tr>
 <tr><td>GitHub</td><td>Hosts this website</td></tr>
 </table>
@@ -87,6 +96,8 @@
 <li><strong>Your account:</strong> until you delete it. Deleting it removes your profile, photos, the messages and files you sent, your keys and backup, and your memberships. Messages other people sent you stay on their phones.</li>
 <li><strong>Match chat:</strong> deleted 1 hour after the match ends. Reported messages are kept until we review them; messages we remove are kept hidden for 180 days in case the law requires them, then deleted.</li>
 <li><strong>Market:</strong> which ads you saw or tapped, 2 days. Your chosen state, town and saved ads, until you change them or delete your account.</li>
+<li><strong>Call log:</strong> until you delete your account.</li>
+<li><strong>Daily quiz scores:</strong> leaderboards show the last 30 days; scores stay until you delete your account.</li>
 <li><strong>Reports:</strong> as long as we need them to deal with the problem and keep people safe.</li>
 <li><strong>Crash reports:</strong> 30 days.</li>
 <li><strong>Database backups:</strong> overwritten within 30 days.</li>

@@ -737,6 +737,7 @@ function adminView() {
     { key: 'bids', label: '🏷️ Bids & auctions', render: admBids },
     { key: 'places', label: '📍 Places', render: admPlaces },
     { key: 'settings', label: '⚙️ Prices & settings', render: admSettings },
+    { key: 'reports', label: '🚩 Ad reports', render: admReports },
     { key: 'activity', label: '🕘 Activity log', render: admActivity },
   ], 'dash', { hash: true });
   adminOpen = (key) => bar.querySelector(`[data-key="${key}"]`)?.click();
@@ -1062,6 +1063,42 @@ async function admActivity(c) {
   };
   fill(c, bar.node, el('p', { class: 'small', style: 'margin:12px 0' }, 'Every change to the Market, newest first (last 1,000). Kept for one year.'), out);
   render();
+}
+
+// ---------------------------------------------------------------------------
+// Admin: ads that app users reported ("Report this ad")
+// ---------------------------------------------------------------------------
+
+const REPORT_REASONS = { fake: 'Fake / pretending to be a brand', misleading: 'Misleading offer', scam: 'Scam / asks for money', offensive: 'Offensive', other: 'Something else' };
+
+async function admReports(c) {
+  const status = el('select', {}, ...[['open', 'Open'], ['dismissed', 'Dismissed'], ['actioned', 'Hidden'], ['', 'All']].map(([v, t]) => el('option', { value: v }, t)));
+  const out = el('div');
+  const load = async () => {
+    const rows = await rpc('admin_market_ad_reports', { p_status: status.value || null });
+    if (!rows.length) {
+      fill(out, el('p', { class: 'small', style: 'margin:16px 0' }, status.value === 'open' ? 'No open reports. 🎉' : 'Nothing here.'));
+      return;
+    }
+    fill(out, ...rows.map((r) =>
+      el('div', { class: 'card', style: 'margin:12px 0' },
+        el('div', { class: 'row' },
+          r.image_url ? el('img', { src: r.image_url, alt: '', style: 'width:96px;height:54px;object-fit:cover;border-radius:8px' }) : null,
+          el('div', { class: 'grow' },
+            el('div', { class: 'title' }, `${r.advertiser} · ${r.title}`),
+            el('div', { class: 'small' }, `${r.reports} report${r.reports === 1 ? '' : 's'} · last ${when(r.last_report)}`)),
+          r.approved ? badge('Showing', 'ok') : badge('Hidden', 'bad')),
+        el('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px;margin-top:8px' },
+          ...Object.entries(r.reasons || {}).map(([k, n]) => badge(`${REPORT_REASONS[k] ?? k}: ${n}`, 'warn'))),
+        (r.details || []).length ? el('ul', { class: 'small', style: 'margin:8px 0 0 18px' }, ...r.details.slice(0, 5).map((d) => el('li', {}, d))) : null,
+        status.value === 'open' ? el('div', { class: 'row', style: 'gap:8px;margin-top:10px' },
+          el('button', { class: 'danger small', onclick: () => confirm('Hide this ad? It stops showing in the app until you approve it again.') && act('admin_resolve_ad_reports', { p_ad: r.ad_id, p_action: 'hide' }, load, 'Ad hidden') }, 'Hide ad'),
+          el('button', { class: 'secondary small', onclick: () => act('admin_resolve_ad_reports', { p_ad: r.ad_id, p_action: 'dismiss' }, load, 'Reports dismissed') }, 'Keep ad (dismiss)')) : null)));
+  };
+  status.onchange = load;
+  fill(c, el('p', { class: 'small', style: 'margin:0 0 12px' }, 'Ads that people reported from the app with “Report this ad”. Hiding an ad un-approves it; approve it again in 🖼️ Ads.'),
+    el('label', { class: 'small' }, 'Show ', status), out);
+  await load();
 }
 
 // ---------------------------------------------------------------------------
