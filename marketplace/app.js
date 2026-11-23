@@ -20,7 +20,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storage: window.sessionStorage, persistSession: true, detectSessionInUrl: true, flowType: 'pkce' },
 });
 
-const ROWS = { national: 'National', regional: 'Regional (state)', local: 'Near you (city)' };
+const ROWS = { national: 'National', regional: 'Regional (state)', local: 'Near you (town)' };
+const ROW_SHORT = { national: 'National', regional: 'Regional', local: 'Near you' };
 const IDLE_MINUTES = 60;
 const $ = (id) => document.getElementById(id);
 const root = $('root');
@@ -43,6 +44,13 @@ function el(tag, attrs = {}, ...kids) {
   for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return e;
 }
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svg(tag, attrs = {}, ...kids) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
 /** Like replaceChildren, but skips empty values (null, false) instead of printing "null". */
 function fill(target, ...kids) {
   target.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
@@ -55,11 +63,22 @@ function toast(msg, bad = false) {
   toast.t = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 const inr = (n) => (n == null ? '–' : '₹' + Number(n).toLocaleString('en-IN'));
+const num = (n) => (n == null ? '–' : Number(n).toLocaleString('en-IN'));
+const plural = (n, word) => `${num(n)} ${word}${Number(n) === 1 ? '' : 's'}`;
+const pct = (a, b) => (b ? ((a / b) * 100).toFixed(1) + '%' : '–');
 const indiaToday = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
 const addDays = (d, n) => new Date(new Date(d + 'T00:00:00Z').getTime() + n * 86400e3).toISOString().slice(0, 10);
 const when = (iso) => new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
+const dayLabel = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const dayLong = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const safeImg = (url) => (typeof url === 'string' && url.startsWith('https://') ? url : null);
 const where = (r) => (r.row_kind === 'national' ? '🇮🇳 National' : r.row_kind === 'regional' ? `🗺️ ${r.state}` : `📍 ${r.city ?? 'Town'}, ${r.state}`);
+const badge = (text, kind = '') => el('span', { class: 'badge ' + kind }, text);
+const empty = (text, icon = '📭') => el('div', { class: 'empty' }, el('div', { class: 'icon' }, icon), el('p', {}, text));
+const note = (text, kind = '', icon = 'ℹ️') => el('div', { class: 'note ' + kind }, el('span', {}, icon), el('div', {}, text));
+function card(title, sub, ...kids) {
+  return el('div', { class: 'card' }, title ? el('h3', {}, title) : null, sub ? el('p', { class: 'sub' }, sub) : null, ...kids);
+}
 
 const ERRORS = {
   not_allowed: 'Not allowed.',
@@ -82,18 +101,21 @@ const ERRORS = {
   bidding_closed: 'Bidding is not open yet.',
   bidding_deadline_passed: 'Bidding for that day has closed.',
   bidding_too_far: 'You can bid up to 60 days ahead.',
-  bid_below_minimum: 'Your bid is below the lowest minimum price for that row.',
+  bid_below_minimum: 'Your bid is below the minimum price for that row.',
   bid_too_high: 'That amount is too high.',
   bid_not_found: 'Bid not found.',
   spot_taken: 'That spot is already booked for that day.',
+  range_invalid: 'Choose a valid date range (up to about a year).',
+  admin_market_dashboard: 'The dashboard SQL hasn\'t been run yet (20261123160000_market_dashboard.sql).',
+  admin_app_dashboard: 'The dashboard SQL hasn\'t been run yet (20261123160000_market_dashboard.sql).',
   market_bookings_slot_idx: 'That spot is already booked for that day.',
   market_ads_check1: 'Website links must start with https://',
   market_ads_check: 'This button needs a value (link, phone, code or place).',
   market_advertisers_phone_check: 'Enter a valid phone number.',
   market_advertisers_gst_check: 'GST number looks wrong (15 characters).',
   market_advertisers_website_check: 'Website must start with https://',
-  market_bookings_check: 'Regional needs a state; Near you needs a state and a city.',
-  market_bids_check: 'Regional needs a state; Near you needs a state and a city.',
+  market_bookings_check: 'Regional needs a state; Near you needs a town or district.',
+  market_bids_check: 'Regional needs a state; Near you needs a town or district.',
 };
 function errText(e) {
   const m = e?.message || String(e);
@@ -115,24 +137,71 @@ async function act(name, args, after, okMsg = 'Saved') {
     toast(errText(e), true);
   }
 }
-function field(label, input) { return el('div', {}, el('label', {}, label), input); }
-function stateSelect(value) {
-  return el('select', {}, el('option', { value: '' }, '— choose —'), (me?.states ?? []).map((s) => el('option', { value: s, selected: s === value }, s)));
+function field(label, input, cls = '') { return el('div', { class: 'field ' + cls }, el('label', {}, label), input); }
+function stateSelect(value, blank = '— choose —') {
+  return el('select', {}, el('option', { value: '' }, blank), (me?.states ?? []).map((s) => el('option', { value: s, selected: s === value }, s)));
 }
 function setStatus(text) { $('status').textContent = text ?? ''; $('status').classList.toggle('hidden', !text); }
 
 /** Tabs: [{ key, label, render(container) }] */
-function tabs(list, start) {
-  const bar = el('div', { class: 'tabs' });
+function tabs(list, start, { sub = false, onOpen } = {}) {
+  const bar = el('div', { class: 'tabs' + (sub ? ' sub' : ''), role: 'tablist' });
   const body = el('div');
   const open = (t) => {
-    [...bar.children].forEach((b) => b.classList.toggle('on', b.dataset.key === t.key));
+    [...bar.children].forEach((b) => { const on = b.dataset.key === t.key; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+    onOpen?.(t.key);
     fill(body, el('p', { class: 'small' }, 'Loading…'));
-    Promise.resolve(t.render(body)).catch((e) => fill(body, el('p', { class: 'bad' }, errText(e))));
+    Promise.resolve(t.render(body)).catch((e) => fill(body, note(errText(e), 'bad', '⚠️')));
   };
-  list.forEach((t) => bar.append(el('button', { 'data-key': t.key, onclick: () => open(t) }, t.label)));
+  list.forEach((t) => bar.append(el('button', { 'data-key': t.key, role: 'tab', onclick: () => open(t) }, t.label)));
   open(list.find((t) => t.key === start) ?? list[0]);
   return [bar, body];
+}
+
+/** Sortable table with "show more" and CSV download.
+ *  cols: [{ key, label, num?, fmt?(v,row), get?(row), csv?(row) }] */
+function dataTable(cols, rows, { csv, limit = 50, sortKey, sortDir = -1, emptyText = 'Nothing here for these filters.' } = {}) {
+  if (!rows?.length) return empty(emptyText);
+  const wrap = el('div');
+  let key = sortKey, dir = sortDir, showAll = false;
+  const val = (c, r) => (c.get ? c.get(r) : r[c.key]);
+  const render = () => {
+    const sorted = key ? [...rows].sort((a, b) => {
+      const c = cols.find((x) => x.key === key);
+      const va = val(c, a), vb = val(c, b);
+      if (va == null) return 1; if (vb == null) return -1;
+      return (typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))) * dir;
+    }) : rows;
+    const shown = showAll ? sorted : sorted.slice(0, limit);
+    fill(wrap,
+      el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, cols.map((c) => el('th', { class: 'sortable' + (c.num ? ' num' : ''), onclick: () => { dir = key === c.key ? -dir : (c.num ? -1 : 1); key = c.key; render(); } },
+          c.label, key === c.key ? (dir > 0 ? ' ▲' : ' ▼') : '')))),
+        el('tbody', {}, shown.map((r) => el('tr', {}, cols.map((c) => {
+          const v = val(c, r);
+          const out = c.fmt ? c.fmt(v, r) : v ?? '–';
+          return el('td', { class: c.num ? 'num' : '' }, out instanceof Node ? out : String(out));
+        })))))),
+      el('div', { class: 'table-tools' },
+        el('span', { class: 'grow' }, `${shown.length} of ${rows.length}`),
+        rows.length > limit ? el('button', { class: 'ghost small', onclick: () => { showAll = !showAll; render(); } }, showAll ? 'Show less' : `Show all ${rows.length}`) : null,
+        csv ? el('button', { class: 'ghost small', onclick: () => downloadCsv(csv, cols, sorted) }, '⬇ CSV') : null));
+  };
+  render();
+  return wrap;
+}
+function downloadCsv(name, cols, rows) {
+  // Cells starting with = + - @ could run as formulas in Excel: prefix them with '.
+  const cell = (v) => {
+    let s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  const lines = [cols.map((c) => cell(c.label)).join(','), ...rows.map((r) => cols.map((c) => cell(c.csv ? c.csv(r) : c.get ? c.get(r) : r[c.key])).join(','))];
+  const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  const a = el('a', { href: url, download: `pocketwave-${name}.csv` });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 // Signs out after an hour without activity.
@@ -146,6 +215,120 @@ setInterval(async () => {
 }, 60e3);
 
 // ---------------------------------------------------------------------------
+// Charts (plain SVG, no outside library)
+// ---------------------------------------------------------------------------
+
+const tip = $('viz-tip');
+function showTip(ev, ...lines) {
+  fill(tip, lines.filter((l) => l != null).map((l) => el('div', {}, l)));
+  tip.classList.remove('hidden');
+  const x = Math.min(ev.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  const y = ev.clientY - tip.offsetHeight - 12 < 0 ? ev.clientY + 16 : ev.clientY - tip.offsetHeight - 12;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const hideTip = () => tip.classList.add('hidden');
+/** Top of the y-axis: 4 even steps of a round number (1, 2, 2.5 or 5 × 10ⁿ). */
+function niceMax(v) {
+  if (!(v > 0)) return 4;
+  const raw = v / 4;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  return 4 * [1, 2, 2.5, 5, 10].map((m) => m * p).find((m) => m >= raw);
+}
+const shortNum = (n) => (n >= 1e7 ? (n / 1e7).toFixed(1).replace(/\.0$/, '') + 'Cr' : n >= 1e5 ? (n / 1e5).toFixed(1).replace(/\.0$/, '') + 'L' : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k' : String(n));
+
+/** Column chart over days. series: [{ key, name, color }] (stacked when more than one). */
+function columnChart(data, series, { fmt = num, label = (d) => dayLabel(d.day), title = (d) => dayLong(d.day), wide = false } = {}) {
+  const W = wide ? 1080 : 540, H = wide ? 260 : 240, L = 46, R = 8, T = 10, B = 26;
+  const pw = W - L - R, ph = H - T - B;
+  const totals = data.map((d) => series.reduce((s, x) => s + Number(d[x.key] || 0), 0));
+  const max = niceMax(Math.max(...totals, 0));
+  const step = pw / Math.max(data.length, 1);
+  const bw = Math.max(1.5, Math.min(40, step - 2));
+  const y = (v) => T + ph - (v / max) * ph;
+  const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img' });
+  for (let i = 0; i <= 4; i++) {
+    const v = (max / 4) * i;
+    g.append(svg('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: i ? 'gridline' : 'baseline' }),
+      svg('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end' }, shortNum(v)));
+  }
+  const every = Math.max(1, Math.ceil(data.length / (wide ? 12 : 6)));
+  data.forEach((d, i) => {
+    const x = L + i * step + (step - bw) / 2;
+    let acc = 0;
+    const top = series.map((s) => Number(d[s.key] || 0)).reduce((last, v, j) => (v > 0 ? j : last), -1);
+    series.forEach((s, j) => {
+      const v = Number(d[s.key] || 0);
+      if (v <= 0) return;
+      const y0 = y(acc), y1 = y(acc + v);
+      const h = Math.max(0, y0 - y1 - (j > 0 ? 2 : 0));
+      const r = j === top ? Math.min(4, bw / 2, h) : 0;
+      const yb = j > 0 ? y0 - 2 : y0;
+      g.append(svg('path', { class: 'bar', fill: s.color, d: `M${x},${yb} V${yb - h + r} Q${x},${yb - h} ${x + r},${yb - h} H${x + bw - r} Q${x + bw},${yb - h} ${x + bw},${yb - h + r} V${yb} Z` }));
+      acc += v;
+    });
+    if (i % every === 0) g.append(svg('text', { x: x + bw / 2, y: H - 8, 'text-anchor': 'middle' }, label(d)));
+    const hit = svg('rect', { x: L + i * step, y: T, width: step, height: ph, class: 'hit', tabindex: -1 });
+    hit.addEventListener('pointermove', (ev) => showTip(ev, el('strong', {}, title(d)),
+      ...series.map((s) => `${series.length > 1 ? s.name + ': ' : ''}${fmt(Number(d[s.key] || 0))}`), series.length > 1 ? `Total: ${fmt(totals[i])}` : null));
+    hit.addEventListener('pointerleave', hideTip);
+    g.append(hit);
+  });
+  const wrap = el('div', {});
+  if (series.length > 1) wrap.append(el('div', { class: 'legend' }, series.map((s) => el('span', { style: `--c:${s.color}` }, s.name))));
+  wrap.append(g);
+  return wrap;
+}
+
+/** Line chart over days with a crosshair. */
+function lineChart(data, key, { fmt = num, color = 'var(--s1)', name = '', wide = false } = {}) {
+  const W = wide ? 1080 : 540, H = wide ? 240 : 220, L = 46, R = 12, T = 12, B = 26;
+  const pw = W - L - R, ph = H - T - B;
+  const vals = data.map((d) => Number(d[key] || 0));
+  const max = niceMax(Math.max(...vals, 0));
+  const x = (i) => L + (data.length > 1 ? (i / (data.length - 1)) * pw : pw / 2);
+  const y = (v) => T + ph - (v / max) * ph;
+  const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img' });
+  for (let i = 0; i <= 4; i++) {
+    const v = (max / 4) * i;
+    g.append(svg('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: i ? 'gridline' : 'baseline' }),
+      svg('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end' }, shortNum(v)));
+  }
+  const every = Math.max(1, Math.ceil(data.length / (wide ? 12 : 6)));
+  data.forEach((d, i) => { if (i % every === 0) g.append(svg('text', { x: x(i), y: H - 8, 'text-anchor': 'middle' }, dayLabel(d.day))); });
+  g.append(svg('path', { d: vals.map((v, i) => `${i ? 'L' : 'M'}${x(i)},${y(v)}`).join(' '), fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  const cross = svg('line', { y1: T, y2: T + ph, stroke: 'var(--muted)', 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' });
+  const dot = svg('circle', { r: 5, fill: color, stroke: 'var(--bg)', 'stroke-width': 2, visibility: 'hidden' });
+  const hit = svg('rect', { x: L, y: T, width: pw, height: ph, class: 'hit' });
+  hit.addEventListener('pointermove', (ev) => {
+    const box = g.getBoundingClientRect();
+    const px = ((ev.clientX - box.left) / box.width) * W;
+    const i = Math.max(0, Math.min(data.length - 1, Math.round(((px - L) / pw) * (data.length - 1))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+    dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(vals[i])); dot.setAttribute('visibility', 'visible');
+    showTip(ev, el('strong', {}, fmt(vals[i])), `${name ? name + ' · ' : ''}${dayLong(data[i].day)}`);
+  });
+  hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); hideTip(); });
+  g.append(cross, dot, hit);
+  return g;
+}
+
+/** Horizontal bars (rankings): items [{ name, value }] */
+function hbars(items, { fmt = num, max = 10, zeros = false } = {}) {
+  const list = items.filter((i) => zeros || Number(i.value) > 0).slice(0, max);
+  if (!list.some((i) => Number(i.value) > 0)) return empty('No data yet.', '📊');
+  const top = Math.max(...list.map((i) => Number(i.value)));
+  return el('div', { class: 'hbar' }, list.map((i) => [
+    el('div', { class: 'name', title: i.name }, i.name),
+    el('div', { class: 'track' }, Number(i.value) > 0 ? el('div', { class: 'fill', style: `width:${(Number(i.value) / top) * 100}%` }) : null),
+    el('div', { class: 'val' }, fmt(i.value)),
+  ]));
+}
+function kpi(label, value, hint, onclick) {
+  return el('div', { class: 'kpi' + (onclick ? ' click' : ''), onclick }, el('div', { class: 'label' }, label), el('div', { class: 'value' }, value), hint ? el('div', { class: 'hint' }, hint) : null);
+}
+function chartCard(title, sub, chart) { return el('div', { class: 'card' }, el('h3', {}, title), sub ? el('p', { class: 'sub' }, sub) : null, chart); }
+
+// ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
@@ -156,14 +339,16 @@ async function main() {
     me = await rpc('market_whoami');
   } catch (e) {
     setStatus('');
-    fill(root, el('div', { class: 'card' }, el('p', { class: 'bad' }, errText(e)),
-      el('p', { class: 'small' }, 'If you are the owner: check that the Market SQL has been run in Supabase.'), signOutBtn()));
+    fill(root, card('Can\'t open the Marketplace', null, note(errText(e), 'bad', '⚠️'),
+      el('p', { class: 'small' }, 'If you are the owner: check that the Market SQL has been run in Supabase.'), el('div', { class: 'actions' }, signOutBtn())));
     return;
   }
   if (me.contact_email) { $('contactLink').textContent = me.contact_email; $('contactLink').href = 'mailto:' + me.contact_email; }
   setStatus('');
-  const top = el('div', { class: 'row' }, el('h1', { class: 'grow', style: 'margin:0' }, me.is_admin ? 'Marketplace admin' : 'Marketplace'),
-    el('span', { class: 'small' }, me.email ?? ''), signOutBtn());
+  const top = el('div', { class: 'topbar' },
+    el('h1', {}, me.is_admin ? 'Marketplace admin' : me.advertiser?.status === 'approved' ? me.advertiser.business_name : 'Marketplace'),
+    el('div', { class: 'who' }, el('strong', {}, me.is_admin ? 'Admin' : me.advertiser?.status === 'approved' ? 'Approved advertiser' : 'Advertiser'), me.email ?? ''),
+    signOutBtn());
   let view;
   if (me.is_admin) view = adminView();
   else if (!me.advertiser) view = registerView();
@@ -173,7 +358,7 @@ async function main() {
 }
 
 function signOutBtn() {
-  return el('button', { class: 'secondary', onclick: async () => { await sb.auth.signOut(); location.reload(); } }, 'Sign out');
+  return el('button', { class: 'secondary small', onclick: async () => { await sb.auth.signOut(); location.reload(); } }, 'Sign out');
 }
 
 let started = false;
@@ -189,32 +374,34 @@ start();
 // Signed out: what this is and how it works
 // ---------------------------------------------------------------------------
 
+function signInGoogle() { sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/marketplace/' } }); }
+
 function landing() {
   setStatus('');
-  fill(root, 
+  const feature = (icon, title, text) => el('div', { class: 'feature' }, el('div', { class: 'icon' }, icon), el('h3', {}, title), el('p', {}, text));
+  fill(root,
     el('div', { class: 'hero' },
       el('h1', {}, 'Advertise on Pocketwave'),
-      el('p', {}, 'Pocketwave has a Market tab with up to 30 hand-picked offers a day. People open it because they want to see today\'s deals. No ads in chats, no tracking, no clutter.')),
-    el('div', { class: 'card' },
-      el('h3', {}, 'Three rows, ten spots each'),
-      el('ul', {},
-        el('li', {}, el('strong', {}, 'National: '), 'everyone in India'),
-        el('li', {}, el('strong', {}, 'Regional: '), 'people in one state'),
-        el('li', {}, el('strong', {}, 'Near you: '), 'people in one city')),
-      el('p', { class: 'small' }, 'Spot #1 is seen first and costs the most. New cards go live every day at midnight India time.')),
-    el('div', { class: 'card' },
-      el('h3', {}, 'How it works'),
+      el('p', {}, 'Pocketwave has a Market tab with a small set of hand-picked offers each day. People open it because they want to see today\'s deals. No ads in chats, no tracking, no clutter.'),
+      el('button', { class: 'big', onclick: signInGoogle }, 'Continue with Google'),
+      el('p', { class: 'hint' }, 'Pocketwave admins sign in here too.'),
+      el('div', { class: 'hero-stats' },
+        el('div', {}, el('strong', {}, '3 rows'), 'National · State · Town'),
+        el('div', {}, el('strong', {}, '10 spots'), 'in each row'),
+        el('div', {}, el('strong', {}, 'Daily'), 'fresh at midnight IST'))),
+    el('div', { class: 'feature-grid' },
+      feature('🇮🇳', 'National', 'Seen by everyone in India who opens Market that day.'),
+      feature('🗺️', 'Regional', 'Seen by people in one state.'),
+      feature('📍', 'Near you', 'Seen by people in one town or district.')),
+    card('How it works', 'Spot #1 is seen first and is worth the most.',
       el('ol', { class: 'steps' },
-        el('li', {}, 'Sign in with Google and register your business. We check every business before it can advertise.'),
-        el('li', {}, 'Create your ad: picture, offer and a button (website, call, coupon code or directions). We review each ad.'),
-        el('li', {}, 'Place a sealed bid for a day and a row. Nobody sees your bid. Bidding closes at 6 PM the day before.'),
-        el('li', {}, 'The highest bid gets spot #1, the next gets #2, and so on. You pay just ₹1 more than the bid below yours, never more than what you offered.'),
-        el('li', {}, 'See your views and taps after your day.'))),
-    el('div', { class: 'card' },
-      el('h3', {}, 'What we don\'t accept'),
-      el('p', { class: 'small' }, 'Betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, and misleading offers.')),
-    el('p', {}, el('button', { class: 'big', onclick: () => sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/marketplace/' } }) }, 'Continue with Google')),
-    el('p', { class: 'small' }, 'Pocketwave admins sign in here too.'));
+        el('li', {}, el('strong', {}, 'Register. '), 'Sign in with Google and tell us about your business. We check every business before it can advertise.'),
+        el('li', {}, el('strong', {}, 'Create your ad. '), 'A picture, your offer and a button: website, call, coupon code or directions. We review each ad.'),
+        el('li', {}, el('strong', {}, 'Place a sealed bid. '), 'Pick a day and a row. Nobody sees your bid. Bidding closes at 6 PM India time the day before.'),
+        el('li', {}, el('strong', {}, 'Win a spot. '), 'The highest bid gets #1, the next gets #2, and so on. You pay ₹1 more than the bid below yours, never more than you offered.'),
+        el('li', {}, el('strong', {}, 'See results. '), 'Views and taps for your ad after your day.'))),
+    card('What we don\'t accept', null,
+      el('p', { class: 'small', style: 'margin:0' }, 'Betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, and misleading offers.')));
 }
 
 // ---------------------------------------------------------------------------
@@ -225,15 +412,15 @@ function businessForm(a, { register }) {
   const f = {
     business_name: el('input', { maxlength: 80, value: a?.business_name ?? '', disabled: a && a.status === 'approved' }),
     contact_name: el('input', { maxlength: 60, value: a?.contact_name ?? '' }),
-    phone: el('input', { maxlength: 16, value: a?.phone ?? '', placeholder: '+91 98400 00000' }),
+    phone: el('input', { maxlength: 16, value: a?.phone ?? '', placeholder: '+91 98400 00000', inputmode: 'tel' }),
     gst: el('input', { maxlength: 15, value: a?.gst ?? '', placeholder: 'Optional', disabled: a && a.status === 'approved' }),
-    website: el('input', { value: a?.website ?? '', placeholder: 'https://… (optional)' }),
+    website: el('input', { value: a?.website ?? '', placeholder: 'https://… (optional)', inputmode: 'url' }),
     address: el('input', { maxlength: 200, value: a?.address ?? '' }),
     state: stateSelect(a?.state),
     city: el('input', { maxlength: 40, value: a?.city ?? '' }),
   };
   const accept = el('input', { type: 'checkbox' });
-  const save = el('button', {}, register ? 'Register' : 'Save details');
+  const save = el('button', {}, register ? 'Register business' : 'Save details');
   save.onclick = async () => {
     const p = Object.fromEntries(Object.entries(f).map(([k, i]) => [k, i.value.trim()]));
     if (!p.business_name || !p.contact_name || !p.phone) return toast('Business name, contact name and phone are needed', true);
@@ -246,45 +433,43 @@ function businessForm(a, { register }) {
     }
     save.disabled = false;
   };
-  return el('div', { class: 'card' },
-    el('h3', {}, register ? 'Register your business' : 'Business details'),
+  return card(register ? 'Register your business' : 'Business details',
+    a?.status === 'approved' ? 'Business name and GST can\'t be changed after approval. Write to us if they need fixing.' : 'Fields with * are needed.',
     el('div', { class: 'grid' },
       field('Business name *', f.business_name), field('Contact person *', f.contact_name), field('Phone *', f.phone),
       field('GST number', f.gst), field('Website', f.website), field('Address', f.address), field('State', f.state), field('City', f.city)),
     register ? el('label', { class: 'check' }, accept,
       el('span', {}, 'My business and ads follow the rules: no betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, or misleading offers. I accept the ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms'), '.')) : null,
-    el('p', {}, save));
+    el('div', { class: 'actions' }, save));
 }
 
 function registerView() {
-  if (!me.signup_open) return el('div', { class: 'card' }, el('p', {}, 'New advertiser sign-ups are closed for now. Write to us at ' + me.contact_email + '.'));
-  return [el('p', {}, 'Welcome! Tell us about your business. We\'ll check it and approve your account, usually within a day.'), businessForm(null, { register: true })];
+  if (!me.signup_open) return note('New advertiser sign-ups are closed for now. Write to us at ' + me.contact_email + '.', 'warn', '⏸️');
+  return [note('Welcome! Tell us about your business. We\'ll check it and approve your account, usually within a day.', '', '👋'), businessForm(null, { register: true })];
 }
 
 function waitingView() {
   const a = me.advertiser;
   const msg = {
-    pending: ['⏳ We\'re reviewing your business', 'You\'ll be able to create ads and bid once approved. Keep your details up to date below.'],
-    rejected: ['Your registration wasn\'t approved', 'Fix your details below and save to send it again.'],
-    suspended: ['Your account is suspended', 'Write to us if you think this is a mistake.'],
-  }[a.status] ?? ['', ''];
+    pending: ['⏳', 'We\'re reviewing your business', 'You\'ll be able to create ads and bid once approved. Keep your details up to date below.', 'warn'],
+    rejected: ['✋', 'Your registration wasn\'t approved', 'Fix your details below and save to send it again.', 'bad'],
+    suspended: ['⛔', 'Your account is suspended', 'Write to us if you think this is a mistake.', 'bad'],
+  }[a.status] ?? ['', '', '', ''];
   return [
-    el('div', { class: 'card' }, el('h3', {}, msg[0]), el('p', {}, msg[1]), a.admin_note ? el('p', { class: 'small' }, 'Note from us: ' + a.admin_note) : null),
+    el('div', { class: 'note ' + msg[3] }, el('span', {}, msg[0]), el('div', {}, el('strong', {}, msg[1]), el('div', {}, msg[2]),
+      a.admin_note ? el('div', { class: 'small', style: 'margin-top:4px' }, 'Note from us: ' + a.admin_note) : null)),
     a.status === 'suspended' ? null : businessForm(a, { register: false }),
   ];
 }
 
 function advertiserView() {
-  return [
-    el('p', { class: 'small' }, `${me.advertiser.business_name} · approved advertiser`),
-    ...tabs([
-      { key: 'bid', label: 'Bid for a spot', render: advBid },
-      { key: 'ads', label: 'My ads', render: advAds },
-      { key: 'bids', label: 'My bids', render: advBids },
-      { key: 'results', label: 'Results', render: advResults },
-      { key: 'account', label: 'Account', render: (c) => fill(c, businessForm(me.advertiser, { register: false })) },
-    ]),
-  ];
+  return tabs([
+    { key: 'bid', label: '🏷️ Bid for a spot', render: advBid },
+    { key: 'ads', label: '🖼️ My ads', render: advAds },
+    { key: 'bids', label: '📨 My bids', render: advBids },
+    { key: 'results', label: '📈 Results', render: advResults },
+    { key: 'account', label: '🏢 Account', render: (c) => fill(c, businessForm(me.advertiser, { register: false })) },
+  ]);
 }
 
 // ---- Ads (shared form for advertisers and admins) ----
@@ -322,6 +507,10 @@ function adForm({ ad, admin, onSaved }) {
   const imgFile = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp' });
   const logoFile = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp' });
   const preview = el('div', { class: 'row' }, safeImg(imageUrl) ? el('img', { class: 'thumb', src: imageUrl, alt: '' }) : null);
+  imgFile.onchange = () => {
+    const file = imgFile.files[0];
+    if (file && file.type.startsWith('image/')) fill(preview, el('img', { class: 'thumb', src: URL.createObjectURL(file), alt: '' }), el('span', { class: 'small' }, 'New picture (uploads when you save)'));
+  };
   const approved = el('input', { type: 'checkbox', checked: ad?.approved });
   const save = el('button', {}, ad ? 'Save changes' : 'Create ad');
   save.onclick = async () => {
@@ -346,46 +535,43 @@ function adForm({ ad, admin, onSaved }) {
       save.disabled = false;
     }
   };
-  return el('div', { class: 'card' },
-    el('h3', {}, ad ? 'Edit ad' : 'New ad'),
-    !admin && ad ? el('p', { class: 'small warn' }, 'Saving any change sends the ad back for review.') : null,
+  return card(ad ? 'Edit ad' : 'New ad', 'Not allowed: betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, misleading offers.',
+    !admin && ad ? note('Saving any change sends the ad back for review.', 'warn', '🔁') : null,
     el('div', { class: 'grid' },
       admin ? field('Advertiser *', f.advertiser) : null, field('Title *', f.title), field('Category', f.category),
       admin ? field('Advertiser contact (only admins see this)', f.contact) : null),
-    field('Offer text', f.offer),
+    field('Offer text (up to 200 letters)', f.offer),
     el('div', { class: 'grid' }, field('Button', f.action), field('Button value', f.action_value), field('Button text', f.action_label)),
     el('div', { class: 'grid' }, field('Picture (16:9, JPG/PNG/WebP, under 2 MB)', imgFile), field('Logo (square, optional)', logoFile)),
     preview,
     admin ? el('label', { class: 'check' }, approved, el('span', {}, 'Approved (only approved ads are shown or can bid)')) : null,
-    el('p', { class: 'row' }, save, onSaved && ad ? el('button', { class: 'secondary', onclick: onSaved }, 'Cancel') : null),
-    el('p', { class: 'small' }, 'Not allowed: betting, fantasy or real-money games, alcohol, tobacco, adult content, crypto or "get rich" schemes, misleading offers.'));
+    el('div', { class: 'actions' }, save, onSaved && ad ? el('button', { class: 'secondary', onclick: onSaved }, 'Cancel') : null));
 }
 
 function adCard(a, buttons) {
   return el('div', { class: 'card' },
-    el('div', { class: 'row' },
-      safeImg(a.image_url) ? el('img', { class: 'thumb', src: a.image_url, alt: '' }) : null,
-      el('div', { class: 'grow' },
-        el('strong', {}, a.title),
-        el('div', { class: 'small' }, [a.advertiser, a.category, ACTIONS[a.action] + (a.action_value ? ': ' + a.action_value : '')].filter(Boolean).join(' · ')),
-        el('div', { class: 'small' }, `${a.views ?? 0} views · ${a.taps ?? 0} taps`)),
-      el('span', { class: a.approved ? 'ok' : 'warn' }, a.approved ? 'Approved' : 'Waiting for review')),
-    a.offer ? el('p', { class: 'small' }, a.offer) : null,
-    a.review_note ? el('p', { class: 'small bad' }, 'Review note: ' + a.review_note) : null,
-    el('div', { class: 'row' }, buttons));
+    el('div', { class: 'list-item' },
+      safeImg(a.image_url) ? el('img', { class: 'thumb', src: a.image_url, alt: '' }) : el('div', { class: 'thumb' }),
+      el('div', { class: 'main' },
+        el('div', { class: 'row' }, el('span', { class: 'title grow' }, a.title), a.approved ? badge('Approved', 'ok') : badge('Waiting for review', 'warn')),
+        el('div', { class: 'meta-line' }, [a.advertiser, a.category, ACTIONS[a.action] + (a.action_value ? ': ' + a.action_value : '')].filter(Boolean).join(' · ')),
+        a.offer ? el('div', { class: 'small', style: 'margin-top:4px' }, a.offer) : null,
+        el('div', { class: 'meta-line' }, `👁 ${num(a.views ?? 0)} views · 👆 ${num(a.taps ?? 0)} taps`),
+        a.review_note ? el('div', { class: 'small bad', style: 'margin-top:4px' }, 'Review note: ' + a.review_note) : null,
+        el('div', { class: 'actions' }, buttons))));
 }
 
 async function advAds(c) {
   const ads = await rpc('market_adv_ads');
-  const list = el('div');
   const formBox = el('div');
   const showForm = (ad) => { fill(formBox, adForm({ ad, admin: false, onSaved: () => advAds(c) })); formBox.scrollIntoView({ behavior: 'smooth' }); };
-  fill(list, ...(ads.length ? ads.map((a) => adCard(a, [
-    el('button', { class: 'secondary', onclick: () => showForm(a) }, 'Edit'),
-    el('button', { class: 'danger', onclick: () => confirm('Delete this ad?') && act('market_adv_delete_ad', { p_id: a.id }, () => advAds(c), 'Deleted') }, 'Delete'),
-  ])) : [el('p', { class: 'small' }, 'No ads yet. Create one below.')]));
+  fill(c,
+    ads.length ? ads.map((a) => adCard(a, [
+      el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit'),
+      el('button', { class: 'danger small', onclick: () => confirm('Delete this ad?') && act('market_adv_delete_ad', { p_id: a.id }, () => advAds(c), 'Deleted') }, 'Delete'),
+    ])) : empty('No ads yet. Create your first one below.', '🖼️'),
+    formBox);
   fill(formBox, adForm({ ad: null, admin: false, onSaved: () => advAds(c) }));
-  fill(c, list, formBox);
 }
 
 // ---- Bidding ----
@@ -433,78 +619,94 @@ async function advBid(c) {
   const region = regionInputs(() => {});
   const load = async () => {
     const r = region.value();
-    if (r.p_row !== 'national' && !r.p_state) return fill(out, el('p', { class: 'small' }, 'Choose a state.'));
-    if (r.p_row === 'local' && !r.p_place) return fill(out, el('p', { class: 'small' }, 'Choose a town or district.'));
+    if (r.p_row !== 'national' && !r.p_state) return fill(out, empty('Choose a state to see its spots.', '🗺️'));
+    if (r.p_row === 'local' && !r.p_place) return fill(out, empty('Choose a town or district to see its spots.', '📍'));
     try {
       const m = await rpc('market_adv_market', { p_day: day.value, ...r });
       fill(out, marketPanel(m, ads, load));
-    } catch (e) { fill(out, el('p', { class: 'bad' }, errText(e))); }
+    } catch (e) { fill(out, note(errText(e), 'bad', '⚠️')); }
   };
-  fill(c, 
-    !me.bidding_open ? el('div', { class: 'card' }, el('strong', {}, 'Bidding opens soon.'), el('p', { class: 'small' }, 'You can already see prices and prepare your ads.')) : null,
-    el('div', { class: 'card' }, el('div', { class: 'grid' }, field('Day', day), region.boxes), el('p', {}, el('button', { onclick: load }, 'Show spots'))),
+  fill(c,
+    !me.bidding_open ? note('Bidding opens soon. You can already see prices and prepare your ads.', 'warn', '⏸️') : null,
+    el('div', { class: 'card' }, el('h3', {}, 'Choose a day and a row'),
+      el('div', { class: 'grid' }, field('Day', day), region.boxes), el('div', { class: 'actions' }, el('button', { onclick: load }, 'Show spots'))),
     out);
   load();
 }
 
 function marketPanel(m, ads, reload) {
   const demand = { low: 'Low demand', medium: 'Medium demand', high: 'High demand' }[m.demand];
-  const amount = el('input', { type: 'number', min: 1, value: m.my_bid?.amount_inr ?? '' });
+  const amount = el('input', { type: 'number', min: 1, value: m.my_bid?.amount_inr ?? '', inputmode: 'numeric', placeholder: 'e.g. 2500' });
   const adSel = el('select', {}, ads.length ? ads.map((a) => el('option', { value: a.id, selected: m.my_bid?.ad_id === a.id }, a.title)) : el('option', { value: '' }, 'No approved ads yet'));
   const lowest = m.row_minimum ?? Math.min(...m.positions.map((p) => p.suggested_price ?? p.min_price));
+  const hasTypical = m.positions.some((p) => p.typical_price);
   const place = el('button', { disabled: !m.open || !ads.length }, m.my_bid ? 'Update my bid' : 'Place sealed bid');
   place.onclick = async () => {
     const amt = Number(amount.value);
     if (!amt) return toast('Enter an amount', true);
-    if (!confirm(`Bid ${inr(amt)} for ${where(m)} on ${m.day}?\nYou pay only if you win, and never more than this.`)) return;
+    if (amt < lowest) return toast(`The minimum for this row is ${inr(lowest)}`, true);
+    if (!confirm(`Bid ${inr(amt)} for ${where(m)} on ${dayLong(m.day)}?\nYou pay only if you win, and never more than this.`)) return;
     place.disabled = true;
     await act('market_adv_bid', { p_day: m.day, p_row: m.row_kind, p_state: m.state, p_place: m.place_id ?? null, p_ad: adSel.value, p_amount: amt }, reload, 'Bid saved');
     place.disabled = false;
   };
+  const status = m.open
+    ? note(['Bidding open · closes ', el('strong', {}, when(m.deadline)), ` · minimum bid ${inr(lowest)}`], 'ok', '🟢')
+    : note(!me.bidding_open ? 'Bidding isn\'t open yet. You can prepare your ads and check prices now.' : `Bidding for this day closed at ${when(m.deadline)}. Pick a later day.`, 'warn', '⏰');
   return el('div', {},
     el('div', { class: 'card' },
-      el('div', { class: 'row' }, el('strong', {}, `${where(m)} · ${m.day}`), el('span', { class: 'grow' }),
-        el('span', { class: 'demand-' + m.demand }, demand + (m.bids != null ? ` (${m.bids} bids)` : ''))),
-      el('p', { class: 'small' }, `Minimum bid for this row: ${inr(lowest)}. `, m.open ? `Bidding closes ${when(m.deadline)}.` : 'Bidding is closed for this day.',
-        m.special_day ? ` Special day ×${m.special_day.multiplier}${m.special_day.note ? ' (' + m.special_day.note + ')' : ''}.` : ''),
-      el('table', { class: 'pos-table' },
-        el('tr', {}, el('th', {}, 'Spot'), el('th', {}, 'Suggested price'), el('th', {}, 'Typical winning price'), el('th', {}, 'Available')),
-        m.positions.map((p) => el('tr', {}, el('td', {}, '#' + p.position), el('td', {}, inr(p.suggested_price ?? p.min_price)), el('td', {}, p.typical_price ? inr(p.typical_price) : '–'),
-          el('td', { class: p.taken ? 'bad' : 'ok' }, p.taken ? 'Taken' : 'Open'))))),
+      el('div', { class: 'card-head' }, el('h3', {}, `${where(m)} · ${dayLong(m.day)}`),
+        el('span', { class: 'demand demand-' + m.demand }, demand + (m.bids != null ? ` · ${m.bids} bids` : ''))),
+      status,
+      m.special_day ? note(`Special day: prices ×${m.special_day.multiplier}${m.special_day.note ? ' (' + m.special_day.note + ')' : ''}.`, '', '⭐') : null,
+      el('div', { class: 'table-wrap' }, el('table', { class: 'pos-table' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Spot'), el('th', {}, 'Suggested price'), hasTypical ? el('th', {}, 'Typical winning price') : null)),
+        el('tbody', {}, m.positions.map((p) => el('tr', {}, el('td', {}, el('strong', {}, '#' + p.position)), el('td', {}, inr(p.suggested_price ?? p.min_price)),
+          hasTypical ? el('td', {}, p.typical_price ? inr(p.typical_price) : '–') : null))))),
+      el('p', { class: 'small', style: 'margin:10px 0 0' }, hasTypical
+        ? 'Typical winning price: average of recent auctions for that spot.'
+        : 'Suggested prices show what each spot is worth. Winning prices appear here once there\'s enough auction history.')),
     el('div', { class: 'card' },
       el('h3', {}, m.my_bid ? 'Your bid' : 'Place your bid'),
-      el('div', { class: 'grid' }, field('Ad', adSel), field(`Most you'll pay for the day (at least ${inr(lowest)})`, amount)),
-      !m.open || !ads.length ? el('p', { class: 'warn' },
-        !me.bidding_open ? '⏸️ Bidding isn\'t open yet. You can prepare your ads and check prices now.'
-          : !m.open ? `⏰ Bidding for ${m.day} closed at ${when(m.deadline)}. Pick a later day.`
-          : '📝 You need an approved ad first (see "My ads").') : null,
-      el('p', { class: 'row' }, place,
+      m.my_bid ? el('p', { class: 'sub' }, `You bid ${inr(m.my_bid.amount_inr)}. You can change or cancel it until bidding closes.`) : el('p', { class: 'sub' }, 'Sealed: nobody else sees your bid.'),
+      el('div', { class: 'bid-box' }, field('Ad', adSel), field(`Most you'll pay for the day (at least ${inr(lowest)})`, amount)),
+      !ads.length ? note('You need an approved ad first. Create one in "My ads".', 'warn', '📝') : null,
+      el('div', { class: 'actions' }, place,
         m.my_bid && m.open ? el('button', { class: 'secondary', onclick: () => confirm('Cancel your bid?') && act('market_adv_cancel_bid', { p_id: m.my_bid.id }, reload, 'Bid cancelled') }, 'Cancel bid') : null),
-      el('p', { class: 'small' }, 'Bids are sealed: nobody else sees them. The highest bid gets the top free spot, the next bid the next spot, and so on. You pay ₹1 more than the bid below yours (at least the row minimum), never more than your own bid. Suggested prices show what each spot is worth; bid more to aim higher.'),
-      ads.length ? null : el('p', { class: 'small warn' }, 'Create an ad in "My ads". You can bid once we approve it.')));
+      el('p', { class: 'small', style: 'margin:14px 0 0' }, 'The highest bid gets spot #1, the next bid #2, and so on. You pay ₹1 more than the bid below yours (at least the row minimum), never more than your own bid.')));
 }
 
 async function advBids(c) {
   const bids = await rpc('market_adv_bids');
-  const status = { open: ['Waiting', 'warn'], won: ['Won', 'ok'], lost: ['Not won', 'small'], cancelled: ['Cancelled', 'small'] };
-  fill(c, ...(bids.length ? bids.map((b) => el('div', { class: 'card' },
-    el('div', { class: 'row' }, el('strong', {}, `${b.day} · ${where(b)}`), el('span', { class: 'grow' }), el('span', { class: status[b.status][1] }, status[b.status][0])),
-    el('div', { class: 'small' }, `Ad: ${b.ad_title} · your bid ${inr(b.amount_inr)}`,
-      b.status === 'won' ? ` · spot #${b.won_position} · you pay ${inr(b.price_inr)}` : '',
-      b.status === 'open' ? ` · closes ${when(b.deadline)}` : '', b.result ? ` · ${b.result}` : '')))
-    : [el('p', { class: 'small' }, 'No bids yet.')]));
+  const status = { open: ['Waiting', 'warn'], won: ['Won', 'ok'], lost: ['Not won', ''], cancelled: ['Cancelled', ''] };
+  fill(c, bids.length ? bids.map((b) => el('div', { class: 'card' },
+    el('div', { class: 'list-item' },
+      el('div', { class: 'main' },
+        el('div', { class: 'row' }, el('span', { class: 'title grow' }, `${dayLong(b.day)} · ${where(b)}`), badge(...status[b.status])),
+        el('div', { class: 'meta-line' }, `Ad: ${b.ad_title} · your bid ${inr(b.amount_inr)}`,
+          b.status === 'won' ? ` · spot #${b.won_position} · you pay ${inr(b.price_inr)}` : '',
+          b.status === 'open' ? ` · closes ${when(b.deadline)}` : '', b.result ? ` · ${b.result}` : '')))))
+    : empty('No bids yet. Go to "Bid for a spot" to place one.', '📨'));
 }
 
 async function advResults(c) {
   const rows = await rpc('market_adv_results');
   const owed = rows.filter((r) => !r.paid).reduce((s, r) => s + (r.price_inr ?? 0), 0);
-  fill(c, 
-    owed ? el('div', { class: 'card' }, el('strong', {}, `To pay: ${inr(owed)}`), el('p', { class: 'small' }, me.payment_instructions)) : null,
-    ...(rows.length ? rows.map((r) => el('div', { class: 'card' },
-      el('div', { class: 'row' }, el('strong', {}, `${r.day} · ${where(r)} #${r.position}`), el('span', { class: 'grow' }),
-        el('span', { class: r.paid ? 'ok' : 'warn' }, r.paid ? 'Paid' : 'Not paid'), el('strong', {}, inr(r.price_inr))),
-      el('div', { class: 'small' }, `${r.ad_title} · 👁 ${r.views} views · 👆 ${r.taps} taps · ${r.views ? Math.round((r.taps / r.views) * 100) + '% tapped' : '–'}`)))
-      : [el('p', { class: 'small' }, 'No spots yet. Results appear here once you win a spot.')]));
+  const views = rows.reduce((s, r) => s + (r.views ?? 0), 0), taps = rows.reduce((s, r) => s + (r.taps ?? 0), 0);
+  fill(c,
+    rows.length ? el('div', { class: 'kpis' },
+      kpi('Spots won', num(rows.length)), kpi('Views', num(views)), kpi('Taps', num(taps)), kpi('Tap rate', pct(taps, views)), kpi('To pay', inr(owed))) : null,
+    owed ? note([el('strong', {}, `To pay: ${inr(owed)}. `), me.payment_instructions ?? ''], 'warn', '💳') : null,
+    rows.length ? dataTable([
+      { key: 'day', label: 'Day', fmt: (v) => dayLong(v) },
+      { key: 'where', label: 'Spot', get: (r) => `${where(r)} #${r.position}` },
+      { key: 'ad_title', label: 'Ad' },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+      { key: 'taps', label: 'Taps', num: true, fmt: num },
+      { key: 'rate', label: 'Tap rate', num: true, get: (r) => (r.views ? r.taps / r.views : null), fmt: (v) => (v == null ? '–' : (v * 100).toFixed(1) + '%') },
+      { key: 'price_inr', label: 'Price', num: true, fmt: inr },
+      { key: 'paid', label: 'Paid', fmt: (v) => (v ? badge('Paid', 'ok') : badge('Not paid', 'warn')) },
+    ], rows, { csv: 'my-results', sortKey: 'day' }) : empty('No spots yet. Results appear here once you win a spot.', '📈'));
 }
 
 // ---------------------------------------------------------------------------
@@ -513,18 +715,22 @@ async function advResults(c) {
 
 let cfg = null;
 async function loadCfg() { cfg = await rpc('admin_market_config'); return cfg; }
+let adminOpen = null;
 
 function adminView() {
-  return tabs([
-    { key: 'day', label: 'Day', render: admDay },
-    { key: 'advertisers', label: 'Advertisers', render: admAdvertisers },
-    { key: 'ads', label: 'Ads', render: admAds },
-    { key: 'book', label: 'Book a spot', render: admBook },
-    { key: 'bids', label: 'Bids & auctions', render: admBids },
-    { key: 'places', label: 'Places', render: admPlaces },
-    { key: 'settings', label: 'Prices & settings', render: admSettings },
-    { key: 'activity', label: 'Activity log', render: admActivity },
-  ]);
+  const [bar, body] = tabs([
+    { key: 'dash', label: '📊 Dashboard', render: admDashboard },
+    { key: 'day', label: '📅 Day', render: admDay },
+    { key: 'advertisers', label: '🏢 Advertisers', render: admAdvertisers },
+    { key: 'ads', label: '🖼️ Ads', render: admAds },
+    { key: 'book', label: '📌 Book a spot', render: admBook },
+    { key: 'bids', label: '🏷️ Bids & auctions', render: admBids },
+    { key: 'places', label: '📍 Places', render: admPlaces },
+    { key: 'settings', label: '⚙️ Prices & settings', render: admSettings },
+    { key: 'activity', label: '🕘 Activity log', render: admActivity },
+  ], 'dash');
+  adminOpen = (key) => bar.querySelector(`[data-key="${key}"]`)?.click();
+  return [bar, body];
 }
 
 async function admDay(c) {
@@ -533,24 +739,29 @@ async function admDay(c) {
   const load = async () => {
     c.dataset.day = pick.value;
     const d = await rpc('admin_market_day', { p_day: pick.value });
-    fill(out, 
-      el('div', { class: 'card' },
-        el('div', { class: 'row' }, el('strong', {}, d.day), el('span', { class: 'pill' }, `${d.booked} spots booked`),
-          el('span', { class: 'pill' }, `auctions ${d.auctions_enabled ? 'ON' : 'off'}`), d.open_bids ? el('span', { class: 'pill' }, `${d.open_bids} open bids`) : null),
-        el('p', { class: 'small' }, `Paid ${inr(d.revenue_paid)} · not paid yet ${inr(d.revenue_unpaid)}`, d.pending_approval ? ` · ${d.pending_approval} ad(s) waiting for review` : '')),
-      ...(d.bookings.length ? d.bookings.map((b) => el('div', { class: 'card' },
-        el('div', { class: 'row' }, el('strong', {}, `${where(b)} #${b.position}`), el('span', { class: 'grow' }),
-          el('span', { class: b.paid ? 'ok' : 'warn' }, b.paid ? '✅ paid' : '⏳ not paid'), el('strong', {}, inr(b.price_inr))),
-        el('div', {}, `${b.advertiser} – ${b.title}`, b.approved ? '' : el('span', { class: 'bad' }, '  (ad not approved: hidden)')),
-        el('div', { class: 'small' }, `👁 ${b.views} views · 👆 ${b.taps} taps · ${b.views ? Math.round((b.taps / b.views) * 100) + '% tap rate' : '–'}`),
-        el('div', { class: 'row', style: 'margin-top:8px' },
-          el('button', { class: 'secondary', onclick: () => act('admin_market_update_booking', { p_id: b.id, p_paid: !b.paid }, load) }, b.paid ? 'Mark not paid' : 'Mark paid'),
-          el('button', { class: 'danger', onclick: () => confirm('Remove this booking?') && act('admin_market_delete_booking', { p_id: b.id }, load, 'Removed') }, 'Remove'))))
-        : [el('p', { class: 'small' }, 'No bookings this day. Empty spots show Pocketwave\'s own cards.')]));
+    fill(out,
+      el('div', { class: 'kpis' },
+        kpi('Spots booked', num(d.booked)), kpi('Paid', inr(d.revenue_paid)), kpi('Not paid yet', inr(d.revenue_unpaid)),
+        kpi('Open bids', num(d.open_bids ?? 0)), kpi('Auctions', d.auctions_enabled ? 'On' : 'Off')),
+      d.pending_approval ? note(`${d.pending_approval} ad(s) waiting for review.`, 'warn', '📝') : null,
+      d.bookings.length ? d.bookings.map((b) => el('div', { class: 'card' },
+        el('div', { class: 'list-item' },
+          el('div', { class: 'main' },
+            el('div', { class: 'row' }, el('span', { class: 'title' }, `${where(b)} #${b.position}`), b.paid ? badge('Paid', 'ok') : badge('Not paid', 'warn'),
+              b.approved ? null : badge('Ad not approved: hidden', 'bad')),
+            el('div', { style: 'margin-top:2px' }, `${b.advertiser} – ${b.title}`),
+            el('div', { class: 'meta-line' }, `👁 ${num(b.views)} views · 👆 ${num(b.taps)} taps · ${pct(b.taps, b.views)} tap rate`),
+            el('div', { class: 'actions' },
+              el('button', { class: 'secondary small', onclick: () => act('admin_market_update_booking', { p_id: b.id, p_paid: !b.paid }, load) }, b.paid ? 'Mark not paid' : 'Mark paid'),
+              el('button', { class: 'danger small', onclick: () => confirm('Remove this booking?') && act('admin_market_delete_booking', { p_id: b.id }, load, 'Removed') }, 'Remove'))),
+          el('div', { class: 'price' }, inr(b.price_inr)))))
+        : empty('No bookings this day. Empty spots show Pocketwave\'s own cards.', '📅'));
   };
   pick.onchange = load;
-  fill(c, el('div', { class: 'row' }, pick, el('button', { class: 'secondary', onclick: () => { pick.value = indiaToday(); load(); } }, 'Today'),
-    el('button', { class: 'secondary', onclick: load }, 'Refresh')), out);
+  fill(c, el('div', { class: 'filters' }, field('Day', pick),
+    el('button', { class: 'secondary', onclick: () => { pick.value = indiaToday(); load(); } }, 'Today'),
+    el('button', { class: 'secondary', onclick: () => { pick.value = addDays(indiaToday(), 1); load(); } }, 'Tomorrow'),
+    el('button', { class: 'secondary', onclick: load }, 'Refresh')), el('div', { class: 'mt' }, out));
   await load();
 }
 
@@ -558,21 +769,23 @@ async function admAdvertisers(c) {
   const list = await rpc('admin_market_advertisers');
   const statusClass = { pending: 'warn', approved: 'ok', rejected: 'bad', suspended: 'bad' };
   const set = (a, status) => {
-    const note = status === 'approved' ? null : prompt(`Note to ${a.business_name} (they will see it):`, a.admin_note ?? '');
-    if (status !== 'approved' && note === null) return;
-    act('admin_market_set_advertiser', { p_id: a.id, p_status: status, p_note: note }, () => admAdvertisers(c));
+    const text = status === 'approved' ? null : prompt(`Note to ${a.business_name} (they will see it):`, a.admin_note ?? '');
+    if (status !== 'approved' && text === null) return;
+    act('admin_market_set_advertiser', { p_id: a.id, p_status: status, p_note: text }, () => admAdvertisers(c));
   };
-  fill(c, ...(list.length ? list.map((a) => el('div', { class: 'card' },
-    el('div', { class: 'row' }, el('strong', {}, a.business_name), el('span', { class: 'grow' }), el('span', { class: statusClass[a.status] }, a.status.toUpperCase())),
-    el('div', { class: 'small' }, [a.contact_name, a.phone, a.email, a.gst ? 'GST ' + a.gst : null, [a.city, a.state].filter(Boolean).join(', '), a.website].filter(Boolean).join(' · ')),
-    a.address ? el('div', { class: 'small' }, a.address) : null,
-    el('div', { class: 'small' }, `${a.ads} ads (${a.pending_ads} waiting) · paid ${inr(a.spent)} · owed ${inr(a.owed)} · registered ${when(a.created_at)}`),
-    a.admin_note ? el('div', { class: 'small' }, 'Note: ' + a.admin_note) : null,
-    el('div', { class: 'row', style: 'margin-top:8px' },
-      a.status !== 'approved' ? el('button', { onclick: () => set(a, 'approved') }, 'Approve') : null,
-      a.status === 'pending' ? el('button', { class: 'secondary', onclick: () => set(a, 'rejected') }, 'Reject') : null,
-      a.status === 'approved' ? el('button', { class: 'danger', onclick: () => set(a, 'suspended') }, 'Suspend') : null)))
-    : [el('p', { class: 'small' }, 'No advertisers have registered yet.')]));
+  const order = { pending: 0, approved: 1, suspended: 2, rejected: 3 };
+  const sorted = [...list].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  fill(c, sorted.length ? sorted.map((a) => el('div', { class: 'card' },
+    el('div', { class: 'card-head' }, el('h3', {}, a.business_name), badge(a.status.toUpperCase(), statusClass[a.status])),
+    el('div', { class: 'meta-line' }, [a.contact_name, a.phone, a.email, a.gst ? 'GST ' + a.gst : null, [a.city, a.state].filter(Boolean).join(', '), a.website].filter(Boolean).join(' · ')),
+    a.address ? el('div', { class: 'meta-line' }, a.address) : null,
+    el('div', { class: 'meta-line' }, `${a.ads} ads (${a.pending_ads} waiting) · paid ${inr(a.spent)} · owed ${inr(a.owed)} · registered ${when(a.created_at)}`),
+    a.admin_note ? el('div', { class: 'meta-line' }, 'Note: ' + a.admin_note) : null,
+    el('div', { class: 'actions' },
+      a.status !== 'approved' ? el('button', { class: 'small', onclick: () => set(a, 'approved') }, 'Approve') : null,
+      a.status === 'pending' ? el('button', { class: 'secondary small', onclick: () => set(a, 'rejected') }, 'Reject') : null,
+      a.status === 'approved' ? el('button', { class: 'danger small', onclick: () => set(a, 'suspended') }, 'Suspend') : null)))
+    : empty('No advertisers have registered yet.', '🏢'));
 }
 
 async function admAds(c) {
@@ -580,22 +793,23 @@ async function admAds(c) {
   const formBox = el('div');
   const showForm = (ad) => { fill(formBox, adForm({ ad, admin: true, onSaved: () => admAds(c) })); formBox.scrollIntoView({ behavior: 'smooth' }); };
   const review = (a, ok) => {
-    const note = ok ? null : prompt('Why is it not approved? (the advertiser will see this)', '');
-    if (!ok && note === null) return;
-    act('admin_market_review_ad', { p_id: a.id, p_approved: ok, p_note: note }, () => admAds(c));
+    const text = ok ? null : prompt('Why is it not approved? (the advertiser will see this)', '');
+    if (!ok && text === null) return;
+    act('admin_market_review_ad', { p_id: a.id, p_approved: ok, p_note: text }, () => admAds(c));
   };
   const waiting = ads.filter((a) => !a.approved);
-  fill(c, 
+  fill(c,
     waiting.length ? el('h3', {}, `Waiting for review (${waiting.length})`) : null,
-    ...waiting.map((a) => adCard(a, [
-      el('button', { onclick: () => review(a, true) }, 'Approve'),
-      el('button', { class: 'secondary', onclick: () => review(a, false) }, 'Not approved'),
-      el('button', { class: 'secondary', onclick: () => showForm(a) }, 'Edit')])),
-    el('h3', {}, 'All ads'),
-    ...ads.filter((a) => a.approved).map((a) => adCard(a, [
-      el('button', { class: 'secondary', onclick: () => showForm(a) }, 'Edit'),
-      el('button', { class: 'secondary', onclick: () => review(a, false) }, 'Unapprove'),
-      el('button', { class: 'danger', onclick: () => confirm('Delete this ad and all its bookings and bids?') && act('admin_market_delete_ad', { p_id: a.id }, () => admAds(c), 'Deleted') }, 'Delete')])),
+    waiting.map((a) => adCard(a, [
+      el('button', { class: 'small', onclick: () => review(a, true) }, 'Approve'),
+      el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Not approved'),
+      el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit')])),
+    el('h3', {}, `Approved ads (${ads.length - waiting.length})`),
+    ads.length - waiting.length ? ads.filter((a) => a.approved).map((a) => adCard(a, [
+      el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit'),
+      el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Unapprove'),
+      el('button', { class: 'danger small', onclick: () => confirm('Delete this ad and all its bookings and bids?') && act('admin_market_delete_ad', { p_id: a.id }, () => admAds(c), 'Deleted') }, 'Delete')]))
+      : empty('No approved ads yet.', '🖼️'),
     formBox);
   fill(formBox, adForm({ ad: null, admin: true, onSaved: () => admAds(c) }));
 }
@@ -615,14 +829,14 @@ async function admBook(c) {
     hint.textContent = `Price list for this spot: ${inr(p ? Math.round(p.price_inr * (sp ? Number(sp.multiplier) : 1)) : 0)}${sp ? ` (special day ×${sp.multiplier})` : ''}`;
   }
   day.onchange = updateHint; pos.onchange = updateHint;
-  const save = el('button', {}, 'Book');
+  const save = el('button', {}, 'Book spot');
   save.onclick = () => {
     if (!ad.value) return toast('Approve an ad first', true);
     const r = region.value();
     act('admin_market_book', { p_day: day.value, p_position: Number(pos.value), p_ad: ad.value, ...r, p_price: price.value ? Number(price.value) : null }, null, 'Booked');
   };
-  fill(c, el('div', { class: 'card' }, el('h3', {}, 'Book a spot at a fixed price'),
-    el('div', { class: 'grid' }, field('Day', day), region.boxes, field('Position', pos), field('Ad', ad), field('Price ₹', price)), hint, el('p', {}, save)));
+  fill(c, card('Book a spot at a fixed price', 'For deals agreed by email or phone. Skips the auction.',
+    el('div', { class: 'grid' }, field('Day', day), region.boxes, field('Position', pos), field('Ad', ad), field('Price ₹', price)), hint, el('div', { class: 'actions' }, save)));
   updateHint();
 }
 
@@ -634,31 +848,37 @@ async function admBids(c) {
   const region = regionInputs();
   const ad = el('select', {}, ads.length ? ads.map((a) => el('option', { value: a.id }, `${a.advertiser} – ${a.title}`)) : el('option', { value: '' }, 'No approved ads'));
   const amount = el('input', { type: 'number', min: 1 });
+  const status = { open: 'warn', won: 'ok', lost: '', cancelled: '' };
   const load = async () => {
     c.dataset.day = day.value;
     const bids = await rpc('admin_market_bids', { p_day: day.value });
-    fill(list, ...(bids.length ? bids.map((b) => el('div', { class: 'card' },
-      el('div', { class: 'row' }, el('strong', {}, `${where(b)} · ${b.advertiser} – ${b.title}`), el('span', { class: 'grow' }),
-        el('span', { class: b.status === 'won' ? 'ok' : b.status === 'open' ? 'warn' : 'small' }, b.status.toUpperCase())),
-      el('div', { class: 'small' }, `Bid ${inr(b.amount_inr)}`, b.status === 'won' ? ` · won #${b.won_position} · pays ${inr(b.price_inr)}` : '', b.note ? ` · ${b.note}` : '',
-        b.advertiser_id ? ' · placed by advertiser' : ' · added by admin'),
-      b.status === 'open' ? el('div', { style: 'margin-top:8px' }, el('button', { class: 'secondary', onclick: () => act('admin_market_cancel_bid', { p_id: b.id }, load, 'Cancelled') }, 'Cancel bid')) : null))
-      : [el('p', { class: 'small' }, 'No bids for this day.')]));
+    fill(list, bids.length ? dataTable([
+      { key: 'where', label: 'Row', get: (b) => where(b) },
+      { key: 'advertiser', label: 'Advertiser', get: (b) => `${b.advertiser} – ${b.title}` },
+      { key: 'amount_inr', label: 'Bid', num: true, fmt: inr },
+      { key: 'status', label: 'Status', fmt: (v) => badge(v.toUpperCase(), status[v]) },
+      { key: 'won_position', label: 'Spot', num: true, fmt: (v) => (v ? '#' + v : '–') },
+      { key: 'price_inr', label: 'Pays', num: true, fmt: inr },
+      { key: 'by', label: 'Placed by', get: (b) => (b.advertiser_id ? 'Advertiser' : 'Admin') },
+      { key: 'x', label: '', get: () => '', fmt: (_, b) => (b.status === 'open' ? el('button', { class: 'secondary small', onclick: () => act('admin_market_cancel_bid', { p_id: b.id }, load, 'Cancelled') }, 'Cancel') : '') },
+    ], bids, { sortKey: 'amount_inr', limit: 200 }) : empty('No bids for this day.', '🏷️'));
   };
   day.onchange = load;
   const s = cfg.settings;
-  fill(c, 
-    el('div', { class: 'card' },
-      el('div', { class: 'row' }, day, el('button', { class: 'secondary', onclick: load }, 'Refresh'), el('span', { class: 'grow' }),
-        el('button', { onclick: () => confirm(`Close all open bids for ${day.value} now? Winners get booked.`) && act('admin_market_run_auctions', { p_day: day.value }, load, 'Auctions closed') }, 'Run auctions for this day now')),
-      el('p', { class: 'small' }, `Advertiser bidding: ${s.advertiser_bidding_open ? 'OPEN' : 'closed'} · automatic auctions: ${s.auctions_enabled ? `ON (close daily at ${s.auction_close_hour_ist}:00)` : 'off'}`)),
-    el('div', { class: 'card' }, el('h3', {}, 'Add a bid (testing, or from an email)'),
+  fill(c,
+    el('div', { class: 'filters' }, field('Day', day), el('button', { class: 'secondary', onclick: load }, 'Refresh'), el('span', { class: 'grow' }),
+      el('button', { onclick: () => confirm(`Close all open bids for ${day.value} now? Winners get booked.`) && act('admin_market_run_auctions', { p_day: day.value }, load, 'Auctions closed') }, 'Run auctions for this day now')),
+    el('div', { class: 'row', style: 'margin:10px 0 14px' },
+      badge(`Advertiser bidding: ${s.advertiser_bidding_open ? 'open' : 'closed'}`, s.advertiser_bidding_open ? 'ok' : 'warn'),
+      badge(`Automatic auctions: ${s.auctions_enabled ? `on (${s.auction_close_hour_ist}:00 IST)` : 'off'}`, s.auctions_enabled ? 'ok' : '')),
+    card('Add a bid', 'For testing, or for a bid that came by email.',
       el('div', { class: 'grid' }, region.boxes, field('Ad', ad), field('Most they\'ll pay ₹', amount)),
-      el('p', {}, el('button', { onclick: () => {
+      el('div', { class: 'actions' }, el('button', { onclick: () => {
         if (!ad.value) return toast('Approve an ad first', true);
         if (!Number(amount.value)) return toast('Enter an amount', true);
         act('admin_market_add_bid', { p_day: day.value, p_ad: ad.value, p_amount: Number(amount.value), ...region.value() }, () => { amount.value = ''; return load(); }, 'Bid added');
       } }, 'Add bid'))),
+    el('h3', {}, 'Bids for this day'),
     list);
   await load();
 }
@@ -676,30 +896,31 @@ async function admSettings(c) {
     contact_email: email.value.trim(), auction_close_hour_ist: Number(hour.value), max_spots_per_advertiser: Number(cap.value),
     payment_instructions: pay.value.trim(), advertiser_signup_open: signup.checked, advertiser_bidding_open: bidding.checked,
     auctions_enabled: auctions.checked, show_exact_bid_count: exact.checked } }, () => admSettings(c));
-  const prices = el('table', {}, el('tr', {}, el('th', {}, 'Spot'), Object.values(ROWS).map((r) => el('th', {}, r))),
-    Array.from({ length: 10 }, (_, i) => el('tr', {}, el('td', {}, '#' + (i + 1)), Object.keys(ROWS).map((k) => {
+  const prices = el('div', { class: 'table-wrap' }, el('table', {},
+    el('thead', {}, el('tr', {}, el('th', {}, 'Spot'), Object.values(ROWS).map((r) => el('th', {}, r)))),
+    el('tbody', {}, Array.from({ length: 10 }, (_, i) => el('tr', {}, el('td', {}, el('strong', {}, '#' + (i + 1))), Object.keys(ROWS).map((k) => {
       const p = cfg.prices.find((x) => x.row_kind === k && x.position === i + 1);
       const inp = el('input', { type: 'number', min: 0, value: p?.price_inr ?? 0 });
       inp.onchange = () => act('admin_market_set_price', { p_row: k, p_position: i + 1, p_price: Number(inp.value) });
       return el('td', {}, inp);
-    }))));
+    }))))));
   const spDay = el('input', { type: 'date' }), spMult = el('input', { type: 'number', step: 0.5, min: 1, max: 10, value: 2 }), spNote = el('input', { placeholder: 'IPL final' });
-  fill(c, 
-    el('div', { class: 'card' }, el('h3', {}, 'Switches'),
+  fill(c,
+    card('Switches', null,
       el('label', { class: 'check' }, signup, el('span', {}, 'Businesses can register')),
       el('label', { class: 'check' }, bidding, el('span', {}, 'Approved advertisers can place bids')),
       el('label', { class: 'check' }, auctions, el('span', {}, 'Close auctions automatically every evening for the next day')),
       el('label', { class: 'check' }, exact, el('span', {}, 'Show advertisers the exact number of bids (otherwise Low / Medium / High demand)')),
-      el('div', { class: 'grid' }, field('Contact email shown in the app and here', email), field('Bidding closes at (hour, India time, day before)', hour), field('Max spots per advertiser per row', cap)),
+      el('div', { class: 'grid', style: 'margin-top:18px' }, field('Contact email shown in the app and here', email), field('Bidding closes at (hour, India time, day before)', hour), field('Max spots per advertiser per row', cap)),
       field('Payment instructions shown to winners', pay),
-      el('p', {}, el('button', { onclick: save }, 'Save settings'))),
-    el('div', { class: 'card' }, el('h3', {}, 'Price list (₹ per day)'), prices, el('p', { class: 'small' }, 'Used as the fixed price when you book a spot by hand, and shown to advertisers as suggested prices. In auctions, the lowest price in each row (#10) is the minimum bid. Each box saves when you leave it.')),
-    el('div', { class: 'card' }, el('h3', {}, 'Special days (prices multiply)'),
+      el('div', { class: 'actions' }, el('button', { onclick: save }, 'Save settings'))),
+    card('Price list (₹ per day)', 'Used as the fixed price when you book a spot by hand, and shown to advertisers as suggested prices. In auctions, the #10 price of each row is the minimum bid. Each box saves when you leave it.', prices),
+    card('Special days (prices multiply)', null,
       el('div', { class: 'grid' }, field('Day', spDay), field('Multiplier', spMult), field('Note', spNote)),
-      el('p', {}, el('button', { onclick: () => spDay.value ? act('admin_market_special_day', { p_day: spDay.value, p_multiplier: Number(spMult.value), p_note: spNote.value.trim() || null }, () => admSettings(c)) : toast('Pick a day', true) }, 'Add special day')),
-      ...(cfg.special_days.length ? cfg.special_days.map((d) => el('div', { class: 'row', style: 'margin:6px 0' }, el('span', {}, `${d.day} · ×${d.multiplier}${d.note ? ' · ' + d.note : ''}`),
-        el('button', { class: 'secondary', onclick: () => act('admin_market_special_day', { p_day: d.day, p_multiplier: null }, () => admSettings(c), 'Removed') }, 'Remove')))
-        : [el('p', { class: 'small' }, 'No special days coming up.')])));
+      el('div', { class: 'actions' }, el('button', { onclick: () => spDay.value ? act('admin_market_special_day', { p_day: spDay.value, p_multiplier: Number(spMult.value), p_note: spNote.value.trim() || null }, () => admSettings(c)) : toast('Pick a day', true) }, 'Add special day')),
+      cfg.special_days.length ? el('div', { class: 'mt' }, cfg.special_days.map((d) => el('div', { class: 'row', style: 'margin:6px 0' }, badge(`×${d.multiplier}`, 'info'), el('span', { class: 'grow' }, `${dayLong(d.day)}${d.note ? ' · ' + d.note : ''}`),
+        el('button', { class: 'secondary small', onclick: () => act('admin_market_special_day', { p_day: d.day, p_multiplier: null }, () => admSettings(c), 'Removed') }, 'Remove'))))
+        : el('p', { class: 'small' }, 'No special days coming up.')));
 }
 
 async function admPlaces(c) {
@@ -709,27 +930,26 @@ async function admPlaces(c) {
   const name = el('input', { maxlength: 60, placeholder: 'Town or district name' });
   const load = async () => {
     c.dataset.state = state.value;
-    if (!state.value) return fill(list, el('p', { class: 'small' }, 'Choose a state.'));
+    if (!state.value) return fill(list, empty('Choose a state.', '🗺️'));
     const places = await rpc('admin_market_places', { p_state: state.value });
     delete placeCache[state.value];
     const districts = places.filter((p) => p.kind === 'district');
     fill(district, el('option', { value: '' }, '— add as a new district —'), districts.map((d) => el('option', { value: d.id }, `Town in ${d.name} district`)));
     fill(list, el('p', { class: 'small' }, `${districts.length} districts · ${places.length - districts.length} towns. Hidden places don't appear in the app; people who chose them keep them.`),
-      el('table', {}, el('tr', {}, el('th', {}, 'Place'), el('th', {}, 'People'), el('th', {}, 'Shown')),
-        places.map((p) => el('tr', {},
-          el('td', {}, p.kind === 'district' ? el('strong', {}, `${p.name} district`) : `↳ ${p.name}`),
-          el('td', {}, String(p.users)),
-          el('td', {}, el('button', { class: p.active ? 'secondary' : '', onclick: () => act('admin_market_set_place_active', { p_id: p.id, p_active: !p.active }, load) }, p.active ? 'Hide' : 'Show'))))));
+      dataTable([
+        { key: 'name', label: 'Place', fmt: (v, p) => (p.kind === 'district' ? el('strong', {}, `${v} district`) : `↳ ${v}`) },
+        { key: 'users', label: 'People', num: true, fmt: num },
+        { key: 'active', label: 'Shown', fmt: (v, p) => el('button', { class: (v ? 'secondary ' : '') + 'small', onclick: () => act('admin_market_set_place_active', { p_id: p.id, p_active: !v }, load) }, v ? 'Hide' : 'Show') },
+      ], places, { limit: 400, csv: 'places-' + state.value }));
   };
   state.onchange = load;
   const add = el('button', { onclick: () => {
     if (!state.value || name.value.trim().length < 2) return toast('Choose a state and enter a name', true);
     act('admin_market_add_place', { p_state: state.value, p_name: name.value.trim(), p_district: district.value ? Number(district.value) : null }, () => { name.value = ''; return load(); }, 'Added');
-  } }, 'Add');
+  } }, 'Add place');
   fill(c,
-    el('div', { class: 'card' }, el('h3', {}, 'Add a town or district'),
-      el('div', { class: 'grid' }, field('State', state), field('Add as', district), field('Name', name)), el('p', {}, add),
-      el('p', { class: 'small' }, 'Add towns people ask for. New districts (created recently by the government) can be added the same way.')),
+    card('Add a town or district', 'Add towns people ask for. New districts (created recently by the government) can be added the same way.',
+      el('div', { class: 'grid' }, field('State', state), field('Add as', district), field('Name', name)), el('div', { class: 'actions' }, add)),
     list);
   await load();
 }
@@ -740,6 +960,340 @@ async function admActivity(c) {
     market_settings: 'settings', market_special_days: 'special day', market_house_cards: 'house card', market_places: 'place' };
   const verbs = { INSERT: 'added', UPDATE: 'changed', DELETE: 'removed' };
   fill(c, el('p', { class: 'small' }, 'Every change to the Market, newest first. Kept for one year.'),
-    el('table', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Who'), el('th', {}, 'What')),
-      rows.map((r) => el('tr', {}, el('td', {}, when(r.at)), el('td', {}, r.who), el('td', {}, `${verbs[r.op] ?? r.op} ${names[r.tbl] ?? r.tbl}`)))));
+    dataTable([
+      { key: 'at', label: 'When', fmt: (v) => when(v) },
+      { key: 'who', label: 'Who' },
+      { key: 'what', label: 'What', get: (r) => `${verbs[r.op] ?? r.op} ${names[r.tbl] ?? r.tbl}` },
+    ], rows, { csv: 'activity', limit: 100 }));
+}
+
+// ---------------------------------------------------------------------------
+// Admin dashboard
+// ---------------------------------------------------------------------------
+
+const RANGES = {
+  '7': ['Last 7 days', () => [addDays(indiaToday(), -6), indiaToday()]],
+  '30': ['Last 30 days', () => [addDays(indiaToday(), -29), indiaToday()]],
+  '90': ['Last 90 days', () => [addDays(indiaToday(), -89), indiaToday()]],
+  month: ['This month', () => [indiaToday().slice(0, 8) + '01', indiaToday()]],
+  lastmonth: ['Last month', () => { const first = indiaToday().slice(0, 8) + '01'; const end = addDays(first, -1); return [end.slice(0, 8) + '01', end]; }],
+  next30: ['Next 30 days (booked ahead)', () => [addDays(indiaToday(), 1), addDays(indiaToday(), 30)]],
+  year: ['Last 365 days', () => [addDays(indiaToday(), -364), indiaToday()]],
+  custom: ['Custom…', null],
+};
+const dash = { range: '30', from: null, to: null, row: '', state: '', adv: '', tab: 'overview', data: null, app: null, key: '' };
+
+async function admDashboard(c) {
+  [dash.from, dash.to] = dash.range === 'custom' && dash.from ? [dash.from, dash.to] : RANGES[dash.range][1]();
+  const range = el('select', {}, Object.entries(RANGES).map(([k, [label]]) => el('option', { value: k, selected: k === dash.range }, label)));
+  const from = el('input', { type: 'date', value: dash.from }), to = el('input', { type: 'date', value: dash.to });
+  const fromBox = field('From', from), toBox = field('To', to);
+  const row = el('select', {}, el('option', { value: '' }, 'All rows'), Object.entries(ROWS).map(([k, v]) => el('option', { value: k, selected: k === dash.row }, v)));
+  const state = stateSelect(dash.state, 'All states');
+  const adv = el('select', {}, el('option', { value: '' }, 'All advertisers'));
+  const body = el('div');
+  const showCustom = () => { const on = range.value === 'custom'; fromBox.classList.toggle('hidden', !on); toBox.classList.toggle('hidden', !on); };
+  showCustom();
+
+  const load = async (force = false) => {
+    if (range.value !== 'custom') [from.value, to.value] = RANGES[range.value][1]();
+    Object.assign(dash, { range: range.value, from: from.value, to: to.value, row: row.value, state: state.value, adv: adv.value });
+    const key = JSON.stringify([dash.from, dash.to, dash.row, dash.state, dash.adv]);
+    if (force || key !== dash.key || !dash.data) {
+      fill(body, el('p', { class: 'small' }, 'Loading reports…'));
+      try {
+        dash.data = await rpc('admin_market_dashboard', { p_from: dash.from, p_to: dash.to, p_row: dash.row || null, p_state: dash.state || null, p_advertiser: dash.adv || null });
+        dash.app = null; dash.key = key;
+      } catch (e) { return fill(body, note(errText(e), 'bad', '⚠️')); }
+      const keep = adv.value;
+      fill(adv, el('option', { value: '' }, 'All advertisers'), (dash.data.filters?.advertisers ?? []).map((a) => el('option', { value: a.key, selected: a.key === keep }, a.name)));
+    }
+    renderDash(body);
+  };
+  [range, from, to, row, state, adv].forEach((i) => (i.onchange = () => { showCustom(); if (range.value !== 'custom' || (from.value && to.value)) load(); }));
+
+  const subTabs = [
+    ['overview', 'Overview'], ['revenue', 'Revenue'], ['spots', 'Spots'], ['places', 'Places'], ['advertisers', 'Advertisers'],
+    ['ads', 'Ads'], ['bids', 'Bids'], ['audience', 'Audience'], ['app', 'App'],
+  ];
+  const bar = el('div', { class: 'tabs sub', role: 'tablist' }, subTabs.map(([k, label]) => el('button', { 'data-key': k, role: 'tab', class: k === dash.tab ? 'on' : '',
+    onclick: (ev) => { dash.tab = k; [...bar.children].forEach((b) => b.classList.toggle('on', b === ev.currentTarget)); renderDash(body); } }, label)));
+
+  fill(c,
+    el('div', { class: 'filters' },
+      field('Dates', range, 'wide'), fromBox, toBox, field('Row', row), field('State', state), field('Advertiser', adv, 'wide'),
+      el('button', { class: 'secondary', onclick: () => load(true) }, '↻ Refresh'),
+      el('button', { class: 'ghost', onclick: () => { range.value = '30'; row.value = ''; state.value = ''; adv.value = ''; showCustom(); load(); } }, 'Reset')),
+    bar, body);
+  await load();
+}
+
+function renderDash(body) {
+  const d = dash.data;
+  if (!d) return;
+  const views = {
+    overview: dashOverview, revenue: dashRevenue, spots: dashSpots, places: dashPlaces, advertisers: dashAdvertisers,
+    ads: dashAds, bids: dashBids, audience: dashAudience, app: dashApp,
+  };
+  const scope = [`${dayLong(d.from)} – ${dayLong(d.to)}`, dash.row ? ROW_SHORT[dash.row] : null, dash.state || null,
+    dash.adv ? (d.filters.advertisers.find((a) => a.key === dash.adv)?.name ?? 'one advertiser') : null].filter(Boolean).join(' · ');
+  fill(body, el('p', { class: 'small', style: 'margin:0 0 12px' }, scope));
+  Promise.resolve(views[dash.tab](d, body)).catch((e) => body.append(note(errText(e), 'bad', '⚠️')));
+}
+
+const S1 = 'var(--s1)', S2 = 'var(--s2)';
+
+function dashOverview(d, body) {
+  const k = d.kpis, b = d.bid_kpis, f = d.advertiser_funnel;
+  const todo = [
+    f.pending ? kpi('Advertisers to review', num(f.pending), 'Waiting for approval', () => adminOpen('advertisers')) : null,
+    f.ads_pending ? kpi('Ads to review', num(f.ads_pending), 'Waiting for approval', () => adminOpen('ads')) : null,
+    k.unpaid ? kpi('Not paid yet', inr(k.unpaid), 'In this period', () => { dash.tab = 'revenue'; adminOpen('dash'); }) : null,
+  ].filter(Boolean);
+  body.append(
+    todo.length ? el('div', {}, el('h3', {}, 'Needs your attention'), el('div', { class: 'kpis' }, todo)) : null,
+    el('div', { class: 'kpis' },
+      kpi('Revenue', inr(k.revenue), `${inr(k.paid)} paid`),
+      kpi('Spots sold', num(k.bookings), `${num(k.auction_bookings)} by auction`),
+      kpi('Avg price', inr(k.avg_price), 'per spot'),
+      kpi('Views', num(k.views), 'unique per day'),
+      kpi('Taps', num(k.taps), `${pct(k.taps, k.views)} tap rate`),
+      kpi('National filled', pct(k.national_filled, k.national_capacity), `${num(k.national_filled)} of ${num(k.national_capacity)} spots`),
+      kpi('Bids', num(b.bids - b.cancelled), plural(b.bidders, 'bidder')),
+      kpi('Advertisers', num(k.advertisers), `${num(f.approved)} approved in total`)),
+    el('div', { class: 'cols' },
+      chartCard('Revenue per day', 'Booked spots, paid and not paid.', columnChart(d.daily, [{ key: 'revenue', name: 'Revenue', color: S1 }], { fmt: inr })),
+      chartCard('Views per day', 'People who saw an ad (each person counted once per ad).', lineChart(d.daily, 'views', { name: 'Views' }))),
+    el('div', { class: 'cols mt' },
+      chartCard('Revenue by row', null, hbars(d.by_row.map((r) => ({ name: ROW_SHORT[r.row_kind], value: r.revenue })), { fmt: inr })),
+      chartCard('Top advertisers', 'By spend in this period.', hbars(d.advertisers.map((a) => ({ name: a.name, value: a.revenue })), { fmt: inr, max: 8 }))));
+}
+
+function dashRevenue(d, body) {
+  const k = d.kpis;
+  body.append(
+    el('div', { class: 'kpis' },
+      kpi('Revenue', inr(k.revenue)), kpi('Paid', inr(k.paid), pct(k.paid, k.revenue) + ' collected'), kpi('Not paid yet', inr(k.unpaid)),
+      kpi('Avg price', inr(k.avg_price)), kpi('Per day', inr(Math.round(k.revenue / d.days)), `over ${d.days} days`)),
+    chartCard('Paid and not paid per day', null, columnChart(d.daily.map((x) => ({ ...x, unpaid: Math.max(0, x.revenue - x.paid) })),
+      [{ key: 'paid', name: 'Paid', color: S1 }, { key: 'unpaid', name: 'Not paid', color: S2 }], { fmt: inr, wide: true })),
+    el('div', { class: 'cols mt' },
+      chartCard('By row', null, dataTable([
+        { key: 'row_kind', label: 'Row', fmt: (v) => ROW_SHORT[v] },
+        { key: 'bookings', label: 'Spots', num: true, fmt: num },
+        { key: 'revenue', label: 'Revenue', num: true, fmt: inr },
+        { key: 'avg_price', label: 'Avg', num: true, fmt: inr },
+      ], d.by_row, { csv: 'revenue-by-row' })),
+      chartCard('By category', 'From the ad\'s category.', dataTable([
+        { key: 'category', label: 'Category' },
+        { key: 'bookings', label: 'Spots', num: true, fmt: num },
+        { key: 'revenue', label: 'Revenue', num: true, fmt: inr },
+        { key: 'rate', label: 'Tap rate', num: true, get: (r) => (r.views ? r.taps / r.views : null), fmt: (v) => (v == null ? '–' : (v * 100).toFixed(1) + '%') },
+      ], d.categories, { csv: 'revenue-by-category', sortKey: 'revenue' }))),
+    chartCard('Every booked spot', 'Up to 1,000 newest.', bookingTable(d.booking_list)));
+}
+
+function bookingTable(rows) {
+  return dataTable([
+    { key: 'day', label: 'Day', fmt: (v) => dayLabel(v) },
+    { key: 'where', label: 'Row', get: (r) => `${where(r)} #${r.position}` },
+    { key: 'advertiser', label: 'Advertiser' },
+    { key: 'title', label: 'Ad' },
+    { key: 'price_inr', label: 'Price', num: true, fmt: inr },
+    { key: 'paid', label: 'Paid', fmt: (v) => (v ? badge('Paid', 'ok') : badge('Not paid', 'warn')), csv: (r) => (r.paid ? 'yes' : 'no') },
+    { key: 'views', label: 'Views', num: true, fmt: num },
+    { key: 'taps', label: 'Taps', num: true, fmt: num },
+    { key: 'note', label: 'How', fmt: (v) => (v === 'auction' ? 'Auction' : 'Booked by hand') },
+  ], rows, { csv: 'bookings', sortKey: 'day', limit: 25 });
+}
+
+function dashSpots(d, body) {
+  const rowKinds = dash.row ? [dash.row] : ['national', 'regional', 'local'];
+  const byPos = (rk) => Array.from({ length: 10 }, (_, i) => d.by_position.find((p) => p.row_kind === rk && p.position === i + 1) ?? { row_kind: rk, position: i + 1, bookings: 0, revenue: 0, views: 0, taps: 0 });
+  const k = d.kpis;
+  body.append(
+    el('div', { class: 'kpis' },
+      kpi('National filled', pct(k.national_filled, k.national_capacity), `${num(k.national_filled)} of ${num(k.national_capacity)}`),
+      kpi('Spots sold', num(k.bookings)), kpi('Avg price', inr(k.avg_price)), kpi('Tap rate', pct(k.taps, k.views))),
+    el('div', { class: 'cols' }, rowKinds.map((rk) => chartCard(`${ROW_SHORT[rk]}: average price by spot`, 'Does #1 really earn more than #10?',
+      hbars(byPos(rk).map((p) => ({ name: '#' + p.position, value: p.avg_price ?? 0 })), { fmt: inr, zeros: true }))),
+    ),
+    el('div', { class: 'cols mt' }, rowKinds.map((rk) => chartCard(`${ROW_SHORT[rk]}: tap rate by spot`, 'Taps ÷ views. Shows how much position matters to people.',
+      hbars(byPos(rk).map((p) => ({ name: '#' + p.position, value: p.views ? +((p.taps / p.views) * 100).toFixed(1) : 0 })), { fmt: (v) => v + '%', zeros: true })))),
+    chartCard('Every spot', null, dataTable([
+      { key: 'row_kind', label: 'Row', fmt: (v) => ROW_SHORT[v] },
+      { key: 'position', label: 'Spot', num: true, fmt: (v) => '#' + v },
+      { key: 'bookings', label: 'Sold', num: true, fmt: num },
+      { key: 'avg_price', label: 'Avg price', num: true, fmt: inr },
+      { key: 'min_price', label: 'Lowest', num: true, fmt: inr },
+      { key: 'max_price', label: 'Highest', num: true, fmt: inr },
+      { key: 'revenue', label: 'Revenue', num: true, fmt: inr },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+      { key: 'taps', label: 'Taps', num: true, fmt: num },
+      { key: 'rate', label: 'Tap rate', num: true, get: (r) => (r.views ? r.taps / r.views : null), fmt: (v) => (v == null ? '–' : (v * 100).toFixed(1) + '%') },
+    ], d.by_position, { csv: 'spots', limit: 30 })));
+}
+
+function dashPlaces(d, body) {
+  body.append(
+    el('div', { class: 'cols' },
+      chartCard('People by state', 'People who set their place in Market.', hbars(d.by_state.map((s) => ({ name: s.state, value: s.users })))),
+      chartCard('Revenue by state', 'Regional and Near-you spots.', hbars(d.by_state.map((s) => ({ name: s.state, value: s.revenue })), { fmt: inr }))),
+    chartCard('States', null, dataTable([
+      { key: 'state', label: 'State' },
+      { key: 'users', label: 'People', num: true, fmt: num },
+      { key: 'bookings', label: 'Spots sold', num: true, fmt: num },
+      { key: 'revenue', label: 'Revenue', num: true, fmt: inr },
+      { key: 'bids', label: 'Bids', num: true, fmt: num },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+      { key: 'taps', label: 'Taps', num: true, fmt: num },
+    ], d.by_state, { csv: 'states', sortKey: 'users', emptyText: 'Nobody has set a place yet, and no regional spots sold.' })),
+    chartCard('Towns and districts', 'Places with people, spots or bids. Good places to sell "Near you" spots.', dataTable([
+      { key: 'name', label: 'Place', fmt: (v, p) => (p.kind === 'district' ? `${v} district` : v) },
+      { key: 'state', label: 'State' },
+      { key: 'users', label: 'People', num: true, fmt: num },
+      { key: 'bookings', label: 'Spots sold', num: true, fmt: num },
+      { key: 'revenue', label: 'Revenue', num: true, fmt: inr },
+      { key: 'bids', label: 'Bids', num: true, fmt: num },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+    ], d.by_place, { csv: 'places', sortKey: 'users', emptyText: 'No towns or districts with activity yet.' })));
+}
+
+function dashAdvertisers(d, body) {
+  const f = d.advertiser_funnel;
+  const statusClass = { pending: 'warn', approved: 'ok', rejected: 'bad', suspended: 'bad' };
+  body.append(
+    el('div', { class: 'kpis' },
+      kpi('Waiting', num(f.pending), 'to be reviewed', f.pending ? () => adminOpen('advertisers') : null),
+      kpi('Approved', num(f.approved)), kpi('Rejected', num(f.rejected)), kpi('Suspended', num(f.suspended)),
+      kpi('New', num(f.new_in_range), 'registered in this period'), kpi('Ads approved', num(f.ads_approved), `${num(f.ads_pending)} waiting`)),
+    chartCard('Spend by advertiser', null, hbars(d.advertisers.map((a) => ({ name: a.name, value: a.revenue })), { fmt: inr, max: 12 })),
+    chartCard('All advertisers', '"admin-added" means ads you created for a brand without an account.', dataTable([
+      { key: 'name', label: 'Business' },
+      { key: 'status', label: 'Status', fmt: (v) => badge(v, statusClass[v] ?? '') },
+      { key: 'place', label: 'Place', get: (a) => [a.city, a.state].filter(Boolean).join(', ') || null },
+      { key: 'ads', label: 'Ads', num: true, fmt: num },
+      { key: 'bids', label: 'Bids', num: true, fmt: num },
+      { key: 'won', label: 'Won', num: true, fmt: num },
+      { key: 'winrate', label: 'Win rate', num: true, get: (a) => (a.bids ? a.won / a.bids : null), fmt: (v) => (v == null ? '–' : Math.round(v * 100) + '%') },
+      { key: 'avg_bid', label: 'Avg bid', num: true, fmt: inr },
+      { key: 'bookings', label: 'Spots', num: true, fmt: num },
+      { key: 'revenue', label: 'Spend', num: true, fmt: inr },
+      { key: 'owed', label: 'Owes', num: true, fmt: (v) => (v ? el('span', { class: 'warn' }, inr(v)) : inr(v)) },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+      { key: 'taps', label: 'Taps', num: true, fmt: num },
+    ], d.advertisers, { csv: 'advertisers', sortKey: 'revenue' })));
+}
+
+function dashAds(d, body) {
+  body.append(
+    el('div', { class: 'cols' },
+      chartCard('Most viewed ads', null, hbars(d.ads.map((a) => ({ name: a.title, value: a.views })), { max: 10 })),
+      chartCard('Best tap rate', 'Ads with at least 20 views.', hbars(d.ads.filter((a) => a.views >= 20).map((a) => ({ name: a.title, value: +((a.taps / a.views) * 100).toFixed(1) }))
+        .sort((x, y) => y.value - x.value), { fmt: (v) => v + '%' }))),
+    chartCard('All ads', 'Saves = people who saved the ad in the app (all time).', dataTable([
+      { key: 'title', label: 'Ad' },
+      { key: 'advertiser', label: 'Advertiser' },
+      { key: 'category', label: 'Category' },
+      { key: 'approved', label: 'Status', fmt: (v) => (v ? badge('Approved', 'ok') : badge('Waiting', 'warn')), csv: (a) => (a.approved ? 'approved' : 'waiting') },
+      { key: 'bookings', label: 'Spots', num: true, fmt: num },
+      { key: 'revenue', label: 'Spend', num: true, fmt: inr },
+      { key: 'views', label: 'Views', num: true, fmt: num },
+      { key: 'taps', label: 'Taps', num: true, fmt: num },
+      { key: 'rate', label: 'Tap rate', num: true, get: (a) => (a.views ? a.taps / a.views : null), fmt: (v) => (v == null ? '–' : (v * 100).toFixed(1) + '%') },
+      { key: 'saves', label: 'Saves', num: true, fmt: num },
+    ], d.ads, { csv: 'ads', sortKey: 'views' })));
+}
+
+function dashBids(d, body) {
+  const b = d.bid_kpis;
+  const status = { open: 'warn', won: 'ok', lost: '', cancelled: '' };
+  body.append(
+    el('div', { class: 'kpis' },
+      kpi('Bids', num(b.bids - b.cancelled), `${num(b.cancelled)} cancelled`), kpi('Waiting', num(b.open), 'auction not run yet'),
+      kpi('Won', num(b.won), pct(b.won, b.won + b.lost) + ' win rate'), kpi('Lost', num(b.lost)),
+      kpi('Avg bid', inr(b.avg_bid)), kpi('Highest bid', inr(b.max_bid)),
+      kpi('Bid vs paid', inr(b.bid_value - b.won_value), 'winners saved by paying ₹1 over the next bid')),
+    chartCard('Bids per day', 'By the day the spot runs.', columnChart(d.daily.map((x) => ({ ...x, lostish: Math.max(0, x.bids - x.won) })),
+      [{ key: 'won', name: 'Won', color: S1 }, { key: 'lostish', name: 'Not won / waiting', color: S2 }], { wide: true })),
+    chartCard('By row', null, dataTable([
+      { key: 'row_kind', label: 'Row', fmt: (v) => ROW_SHORT[v] },
+      { key: 'bids', label: 'Bids', num: true, fmt: num },
+      { key: 'won', label: 'Won', num: true, fmt: num },
+      { key: 'lost', label: 'Lost', num: true, fmt: num },
+      { key: 'avg_bid', label: 'Avg bid', num: true, fmt: inr },
+      { key: 'max_bid', label: 'Highest', num: true, fmt: inr },
+      { key: 'avg_paid', label: 'Avg paid', num: true, fmt: inr },
+    ], d.bids_by_row, { csv: 'bids-by-row' })),
+    chartCard('Every bid', 'Up to 500 newest.', dataTable([
+      { key: 'day', label: 'Day', fmt: (v) => dayLabel(v) },
+      { key: 'where', label: 'Row', get: (r) => where(r) },
+      { key: 'advertiser', label: 'Advertiser' },
+      { key: 'title', label: 'Ad' },
+      { key: 'amount_inr', label: 'Bid', num: true, fmt: inr },
+      { key: 'status', label: 'Status', fmt: (v) => badge(v, status[v]) },
+      { key: 'won_position', label: 'Spot', num: true, fmt: (v) => (v ? '#' + v : '–') },
+      { key: 'price_inr', label: 'Paid', num: true, fmt: inr },
+      { key: 'created_at', label: 'Placed', fmt: (v) => when(v) },
+    ], d.bid_list, { csv: 'bids', sortKey: 'day', limit: 25 })));
+}
+
+function dashAudience(d, body) {
+  const a = d.audience;
+  body.append(
+    el('div', { class: 'kpis' },
+      kpi('People with a state', num(a.users_with_state), 'chose a state in Market'),
+      kpi('People with a town', num(a.users_with_place), 'chose a town or district'),
+      kpi('Saved ads', num(a.saves_in_range), `${num(a.saves_total)} all time`),
+      kpi('Views', num(d.kpis.views)), kpi('Taps', num(d.kpis.taps), pct(d.kpis.taps, d.kpis.views) + ' tap rate')),
+    el('div', { class: 'cols' },
+      chartCard('Taps per day', null, lineChart(d.daily, 'taps', { name: 'Taps' })),
+      chartCard('Places set or changed per day', 'Last change per person.', columnChart(a.place_changes, [{ key: 'n', name: 'People', color: S1 }]))),
+    chartCard('Where people are', 'Top states by people who set a place.', hbars(d.by_state.map((s) => ({ name: s.state, value: s.users })), { max: 15 })));
+}
+
+async function dashApp(d, body) {
+  if (!dash.app) {
+    const wait = el('p', { class: 'small' }, 'Loading app numbers…');
+    body.append(wait);
+    dash.app = await rpc('admin_app_dashboard', { p_from: dash.from, p_to: dash.to });
+    wait.remove();
+  }
+  const a = dash.app, t = a.totals, r = a.in_range ?? {};
+  body.append(
+    note('App-wide numbers. Only dates apply here (not row, state or advertiser). Counts only: no message text, no names.', '', 'ℹ️'),
+    el('div', { class: 'kpis' },
+      kpi('Users', num(t.users), `${num(r.users ?? 0)} new in this period`),
+      kpi('Active today', num(t.active_1d), 'last 24 hours'), kpi('Active 7 days', num(t.active_7d)), kpi('Active 30 days', num(t.active_30d)),
+      kpi('Messages', num(r.messages ?? 0), 'sent in this period'), kpi('New chats', num(r.connections ?? 0), `${num(t.connections)} all time`),
+      kpi('Groups', num(t.groups), `${num(r.groups ?? 0)} new`), kpi('Games', num(r.games ?? 0), 'started'),
+      kpi('Match chat', num(r.match_chat ?? 0), 'messages'), kpi('Reports', num(r.reports ?? 0)),
+      kpi('Feedback', num(r.feedback ?? 0), `${num(t.feedback_open)} not handled`), kpi('App errors', num(r.errors ?? 0))),
+    el('div', { class: 'cols' },
+      chartCard('New users per day', null, columnChart(a.daily, [{ key: 'users', name: 'New users', color: S1 }])),
+      chartCard('Messages per day', null, lineChart(a.daily, 'messages', { name: 'Messages' }))),
+    el('div', { class: 'cols mt' },
+      chartCard('Games per day', null, columnChart(a.daily, [{ key: 'games', name: 'Games', color: S1 }])),
+      chartCard('Match chat per day', null, columnChart(a.daily, [{ key: 'match_chat', name: 'Messages', color: S1 }]))),
+    el('div', { class: 'cols mt' },
+      chartCard('Games by type', null, dataTable([
+        { key: 'kind', label: 'Game' }, { key: 'games', label: 'Started', num: true, fmt: num }, { key: 'finished', label: 'Finished', num: true, fmt: num },
+      ], a.games_by_kind, { csv: 'games' })),
+      chartCard('Busiest match chats', null, dataTable([
+        { key: 'name', label: 'Match' }, { key: 'status', label: 'Status' },
+        { key: 'messages', label: 'Messages', num: true, fmt: num }, { key: 'reported', label: 'Reported', num: true, fmt: num },
+      ], a.sports.top_matches, { csv: 'match-chats' }))),
+    el('div', { class: 'cols mt' },
+      chartCard('App errors by screen', null, dataTable([
+        { key: 'screen', label: 'Screen' }, { key: 'n', label: 'Errors', num: true, fmt: num }, { key: 'fatal', label: 'Crashes', num: true, fmt: num },
+        { key: 'latest_version', label: 'Version' },
+      ], a.errors_by_screen, { csv: 'errors', emptyText: 'No errors in this period. 🎉' })),
+      chartCard('Feedback by type', null, dataTable([
+        { key: 'category', label: 'Type' }, { key: 'n', label: 'Count', num: true, fmt: num },
+      ], a.feedback_by_category, { csv: 'feedback' }))),
+    chartCard('Every day', null, dataTable([
+      { key: 'day', label: 'Day', fmt: (v) => dayLabel(v) },
+      ...[['users', 'New users'], ['messages', 'Messages'], ['connections', 'New chats'], ['groups', 'Groups'], ['games', 'Games'],
+        ['match_chat', 'Match chat'], ['reports', 'Reports'], ['feedback', 'Feedback'], ['errors', 'Errors']].map(([key, label]) => ({ key, label, num: true, fmt: num })),
+    ], a.daily, { csv: 'app-daily', sortKey: 'day', limit: 31 })));
 }
