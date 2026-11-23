@@ -190,8 +190,8 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 // The public Supabase address and anon key (the same ones the app uses; they are safe to be public).
 // Everything on this page is checked in the database: only Pocketwave admins can read or change anything.
-const SUPABASE_URL = 'PASTE_SUPABASE_URL_HERE';
-const SUPABASE_ANON_KEY = 'PASTE_SUPABASE_ANON_KEY_HERE';
+const SUPABASE_URL = 'https://cvgfksrlwbrstkgzpowt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2Z2Zrc3Jsd2Jyc3RrZ3pwb3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwNjI5NTcsImV4cCI6MjExMDYzODk1N30.HzaLdwXWm1HIHgDKUfdorZM11mg4ZItdAO6VIWiB2iM';
 
 const $ = (id) => document.getElementById(id);
 if (!SUPABASE_URL.startsWith('https://') || SUPABASE_ANON_KEY.startsWith('PASTE_')) {
