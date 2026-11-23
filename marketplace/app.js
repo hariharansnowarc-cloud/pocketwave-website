@@ -59,7 +59,7 @@ const indiaToday = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice
 const addDays = (d, n) => new Date(new Date(d + 'T00:00:00Z').getTime() + n * 86400e3).toISOString().slice(0, 10);
 const when = (iso) => new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
 const safeImg = (url) => (typeof url === 'string' && url.startsWith('https://') ? url : null);
-const where = (r) => (r.row_kind === 'national' ? '🇮🇳 National' : r.row_kind === 'regional' ? `🗺️ ${r.state}` : `📍 ${r.city}, ${r.state}`);
+const where = (r) => (r.row_kind === 'national' ? '🇮🇳 National' : r.row_kind === 'regional' ? `🗺️ ${r.state}` : `📍 ${r.city ?? 'Town'}, ${r.state}`);
 
 const ERRORS = {
   not_allowed: 'Not allowed.',
@@ -70,6 +70,8 @@ const ERRORS = {
   accept_policy: 'Please accept the advertising rules.',
   signup_closed: 'New sign-ups are closed for now. Write to us.',
   state_unknown: 'Pick a state from the list.',
+  place_unknown: 'Pick a town or district from the list.',
+  place_exists: 'That place is already in the list.',
   city_invalid: 'Enter a city name (letters only).',
   picture_not_allowed: 'Upload pictures with the button; links to other sites are not allowed.',
   too_many_ads: 'You have the most ads allowed. Delete an old one first.',
@@ -388,19 +390,34 @@ async function advAds(c) {
 
 // ---- Bidding ----
 
+// Row + state + town/district pickers (towns and districts come from the database list).
+const placeCache = {};
+async function placesFor(state) {
+  if (!state) return [];
+  placeCache[state] ??= rpc('market_places_list', { p_state: state }).catch(() => []);
+  return placeCache[state];
+}
+function placeOptionLabel(p) { return p.kind === 'district' ? `${p.name} district` : `   ${p.name} (${p.district})`; }
+
 function regionInputs(onChange) {
   const row = el('select', {}, Object.entries(ROWS).map(([k, v]) => el('option', { value: k }, v)));
   const state = stateSelect(me.advertiser?.state);
-  const city = el('input', { maxlength: 40, value: me.advertiser?.city ?? '', placeholder: 'Chennai' });
+  const place = el('select', {}, el('option', { value: '' }, 'Choose a state first'));
   const stateBox = field('State', state);
-  const cityBox = field('City', city);
-  const toggle = () => { stateBox.classList.toggle('hidden', row.value === 'national'); cityBox.classList.toggle('hidden', row.value !== 'local'); onChange?.(); };
+  const placeBox = field('Town or district', place);
+  const loadPlaces = async () => {
+    fill(place, el('option', { value: '' }, state.value ? 'Loading…' : 'Choose a state first'));
+    const list = await placesFor(state.value);
+    fill(place, el('option', { value: '' }, list.length ? '— choose —' : 'No places'), list.map((p) => el('option', { value: p.id }, placeOptionLabel(p))));
+    onChange?.();
+  };
+  const toggle = () => { stateBox.classList.toggle('hidden', row.value === 'national'); placeBox.classList.toggle('hidden', row.value !== 'local'); onChange?.(); };
   row.onchange = toggle;
-  state.onchange = () => onChange?.();
-  city.onchange = () => onChange?.();
-  setTimeout(toggle);
-  return { row, state, city, boxes: [field('Row', row), stateBox, cityBox],
-    value: () => ({ p_row: row.value, p_state: row.value === 'national' ? null : state.value || null, p_city: row.value === 'local' ? city.value.trim() || null : null }) };
+  state.onchange = () => { loadPlaces(); onChange?.(); };
+  place.onchange = () => onChange?.();
+  setTimeout(() => { toggle(); if (state.value) loadPlaces(); });
+  return { row, state, place, boxes: [field('Row', row), stateBox, placeBox],
+    value: () => ({ p_row: row.value, p_state: row.value === 'national' ? null : state.value || null, p_place: row.value === 'local' && place.value ? Number(place.value) : null }) };
 }
 
 function firstBiddableDay() {
@@ -417,7 +434,7 @@ async function advBid(c) {
   const load = async () => {
     const r = region.value();
     if (r.p_row !== 'national' && !r.p_state) return fill(out, el('p', { class: 'small' }, 'Choose a state.'));
-    if (r.p_row === 'local' && !r.p_city) return fill(out, el('p', { class: 'small' }, 'Enter a city.'));
+    if (r.p_row === 'local' && !r.p_place) return fill(out, el('p', { class: 'small' }, 'Choose a town or district.'));
     try {
       const m = await rpc('market_adv_market', { p_day: day.value, ...r });
       fill(out, marketPanel(m, ads, load));
@@ -441,7 +458,7 @@ function marketPanel(m, ads, reload) {
     if (!amt) return toast('Enter an amount', true);
     if (!confirm(`Bid ${inr(amt)} for ${where(m)} on ${m.day}?\nYou pay only if you win, and never more than this.`)) return;
     place.disabled = true;
-    await act('market_adv_bid', { p_day: m.day, p_row: m.row_kind, p_state: m.state, p_city: m.city, p_ad: adSel.value, p_amount: amt }, reload, 'Bid saved');
+    await act('market_adv_bid', { p_day: m.day, p_row: m.row_kind, p_state: m.state, p_place: m.place_id ?? null, p_ad: adSel.value, p_amount: amt }, reload, 'Bid saved');
     place.disabled = false;
   };
   return el('div', {},
@@ -500,6 +517,7 @@ function adminView() {
     { key: 'ads', label: 'Ads', render: admAds },
     { key: 'book', label: 'Book a spot', render: admBook },
     { key: 'bids', label: 'Bids & auctions', render: admBids },
+    { key: 'places', label: 'Places', render: admPlaces },
     { key: 'settings', label: 'Prices & settings', render: admSettings },
     { key: 'activity', label: 'Activity log', render: admActivity },
   ]);
@@ -680,10 +698,42 @@ async function admSettings(c) {
         : [el('p', { class: 'small' }, 'No special days coming up.')])));
 }
 
+async function admPlaces(c) {
+  const state = stateSelect(c.dataset.state || 'Tamil Nadu');
+  const list = el('div');
+  const district = el('select');
+  const name = el('input', { maxlength: 60, placeholder: 'Town or district name' });
+  const load = async () => {
+    c.dataset.state = state.value;
+    if (!state.value) return fill(list, el('p', { class: 'small' }, 'Choose a state.'));
+    const places = await rpc('admin_market_places', { p_state: state.value });
+    delete placeCache[state.value];
+    const districts = places.filter((p) => p.kind === 'district');
+    fill(district, el('option', { value: '' }, '— add as a new district —'), districts.map((d) => el('option', { value: d.id }, `Town in ${d.name} district`)));
+    fill(list, el('p', { class: 'small' }, `${districts.length} districts · ${places.length - districts.length} towns. Hidden places don't appear in the app; people who chose them keep them.`),
+      el('table', {}, el('tr', {}, el('th', {}, 'Place'), el('th', {}, 'People'), el('th', {}, 'Shown')),
+        places.map((p) => el('tr', {},
+          el('td', {}, p.kind === 'district' ? el('strong', {}, `${p.name} district`) : `↳ ${p.name}`),
+          el('td', {}, String(p.users)),
+          el('td', {}, el('button', { class: p.active ? 'secondary' : '', onclick: () => act('admin_market_set_place_active', { p_id: p.id, p_active: !p.active }, load) }, p.active ? 'Hide' : 'Show'))))));
+  };
+  state.onchange = load;
+  const add = el('button', { onclick: () => {
+    if (!state.value || name.value.trim().length < 2) return toast('Choose a state and enter a name', true);
+    act('admin_market_add_place', { p_state: state.value, p_name: name.value.trim(), p_district: district.value ? Number(district.value) : null }, () => { name.value = ''; return load(); }, 'Added');
+  } }, 'Add');
+  fill(c,
+    el('div', { class: 'card' }, el('h3', {}, 'Add a town or district'),
+      el('div', { class: 'grid' }, field('State', state), field('Add as', district), field('Name', name)), el('p', {}, add),
+      el('p', { class: 'small' }, 'Add towns people ask for. New districts (created recently by the government) can be added the same way.')),
+    list);
+  await load();
+}
+
 async function admActivity(c) {
   const rows = await rpc('admin_market_audit', { p_limit: 300 });
   const names = { market_ads: 'ad', market_bookings: 'booking', market_bids: 'bid', market_advertisers: 'advertiser', market_prices: 'price',
-    market_settings: 'settings', market_special_days: 'special day', market_house_cards: 'house card' };
+    market_settings: 'settings', market_special_days: 'special day', market_house_cards: 'house card', market_places: 'place' };
   const verbs = { INSERT: 'added', UPDATE: 'changed', DELETE: 'removed' };
   fill(c, el('p', { class: 'small' }, 'Every change to the Market, newest first. Kept for one year.'),
     el('table', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Who'), el('th', {}, 'What')),
