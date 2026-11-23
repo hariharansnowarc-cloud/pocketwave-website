@@ -206,7 +206,7 @@ function landing() {
         el('li', {}, 'Sign in with Google and register your business. We check every business before it can advertise.'),
         el('li', {}, 'Create your ad: picture, offer and a button (website, call, coupon code or directions). We review each ad.'),
         el('li', {}, 'Place a sealed bid for a day and a row. Nobody sees your bid. Bidding closes at 6 PM the day before.'),
-        el('li', {}, 'Highest bids win the best spots. You pay just ₹1 more than the next bid, never more than what you offered.'),
+        el('li', {}, 'The highest bid gets spot #1, the next gets #2, and so on. You pay just ₹1 more than the bid below yours, never more than what you offered.'),
         el('li', {}, 'See your views and taps after your day.'))),
     el('div', { class: 'card' },
       el('h3', {}, 'What we don\'t accept'),
@@ -434,7 +434,7 @@ function marketPanel(m, ads, reload) {
   const demand = { low: 'Low demand', medium: 'Medium demand', high: 'High demand' }[m.demand];
   const amount = el('input', { type: 'number', min: 1, value: m.my_bid?.amount_inr ?? '' });
   const adSel = el('select', {}, ads.length ? ads.map((a) => el('option', { value: a.id, selected: m.my_bid?.ad_id === a.id }, a.title)) : el('option', { value: '' }, 'No approved ads yet'));
-  const lowest = Math.min(...m.positions.map((p) => p.min_price));
+  const lowest = m.row_minimum ?? Math.min(...m.positions.map((p) => p.suggested_price ?? p.min_price));
   const place = el('button', { disabled: !m.open || !ads.length }, m.my_bid ? 'Update my bid' : 'Place sealed bid');
   place.onclick = async () => {
     const amt = Number(amount.value);
@@ -448,18 +448,18 @@ function marketPanel(m, ads, reload) {
     el('div', { class: 'card' },
       el('div', { class: 'row' }, el('strong', {}, `${where(m)} · ${m.day}`), el('span', { class: 'grow' }),
         el('span', { class: 'demand-' + m.demand }, demand + (m.bids != null ? ` (${m.bids} bids)` : ''))),
-      el('p', { class: 'small' }, m.open ? `Bidding closes ${when(m.deadline)}.` : 'Bidding is closed for this day.',
+      el('p', { class: 'small' }, `Minimum bid for this row: ${inr(lowest)}. `, m.open ? `Bidding closes ${when(m.deadline)}.` : 'Bidding is closed for this day.',
         m.special_day ? ` Special day ×${m.special_day.multiplier}${m.special_day.note ? ' (' + m.special_day.note + ')' : ''}.` : ''),
       el('table', { class: 'pos-table' },
-        el('tr', {}, el('th', {}, 'Spot'), el('th', {}, 'Minimum'), el('th', {}, 'Typical winning price'), el('th', {}, 'Available')),
-        m.positions.map((p) => el('tr', {}, el('td', {}, '#' + p.position), el('td', {}, inr(p.min_price)), el('td', {}, p.typical_price ? inr(p.typical_price) : '–'),
+        el('tr', {}, el('th', {}, 'Spot'), el('th', {}, 'Suggested price'), el('th', {}, 'Typical winning price'), el('th', {}, 'Available')),
+        m.positions.map((p) => el('tr', {}, el('td', {}, '#' + p.position), el('td', {}, inr(p.suggested_price ?? p.min_price)), el('td', {}, p.typical_price ? inr(p.typical_price) : '–'),
           el('td', { class: p.taken ? 'bad' : 'ok' }, p.taken ? 'Taken' : 'Open'))))),
     el('div', { class: 'card' },
       el('h3', {}, m.my_bid ? 'Your bid' : 'Place your bid'),
       el('div', { class: 'grid' }, field('Ad', adSel), field(`Most you'll pay for the day (at least ${inr(lowest)})`, amount)),
       el('p', { class: 'row' }, place,
         m.my_bid && m.open ? el('button', { class: 'secondary', onclick: () => confirm('Cancel your bid?') && act('market_adv_cancel_bid', { p_id: m.my_bid.id }, reload, 'Bid cancelled') }, 'Cancel bid') : null),
-      el('p', { class: 'small' }, 'Bids are sealed: nobody else sees them. The highest bid gets the best free spot it can afford and pays ₹1 more than the next bid (at least the spot\'s minimum, never more than your bid).'),
+      el('p', { class: 'small' }, 'Bids are sealed: nobody else sees them. The highest bid gets the top free spot, the next bid the next spot, and so on. You pay ₹1 more than the bid below yours (at least the row minimum), never more than your own bid. Suggested prices show what each spot is worth; bid more to aim higher.'),
       ads.length ? null : el('p', { class: 'small warn' }, 'Create an ad in "My ads". You can bid once we approve it.')));
 }
 
@@ -671,7 +671,7 @@ async function admSettings(c) {
       el('div', { class: 'grid' }, field('Contact email shown in the app and here', email), field('Bidding closes at (hour, India time, day before)', hour), field('Max spots per advertiser per row', cap)),
       field('Payment instructions shown to winners', pay),
       el('p', {}, el('button', { onclick: save }, 'Save settings'))),
-    el('div', { class: 'card' }, el('h3', {}, 'Price list (₹ per day): also the minimum bid'), prices, el('p', { class: 'small' }, 'Each box saves when you leave it.')),
+    el('div', { class: 'card' }, el('h3', {}, 'Price list (₹ per day)'), prices, el('p', { class: 'small' }, 'Used as the fixed price when you book a spot by hand, and shown to advertisers as suggested prices. In auctions, the lowest price in each row (#10) is the minimum bid. Each box saves when you leave it.')),
     el('div', { class: 'card' }, el('h3', {}, 'Special days (prices multiply)'),
       el('div', { class: 'grid' }, field('Day', spDay), field('Multiplier', spMult), field('Note', spNote)),
       el('p', {}, el('button', { onclick: () => spDay.value ? act('admin_market_special_day', { p_day: spDay.value, p_multiplier: Number(spMult.value), p_note: spNote.value.trim() || null }, () => admSettings(c)) : toast('Pick a day', true) }, 'Add special day')),
