@@ -90,6 +90,9 @@ label.check { display: flex; gap: 10px; align-items: flex-start; color: var(--te
 .note.bad { background: var(--bad-bg); }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
 .small { font-size: 13px; color: var(--muted); }
+button.small { color: #fff; }
+button.secondary.small { color: var(--text); }
+button.ghost.small { color: var(--brand); }
 .empty { text-align: center; padding: 36px 16px; color: var(--muted); border: 1px dashed var(--border); border-radius: 14px; margin: 0 0 14px; }
 .empty .icon { font-size: 30px; margin-bottom: 6px; }
 .empty p { margin: 0; }

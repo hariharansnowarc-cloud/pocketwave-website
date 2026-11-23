@@ -765,6 +765,42 @@ async function admDay(c) {
   await load();
 }
 
+// ---- Filter bar for admin lists (filters remember their choice while the page is open) ----
+
+const listFilters = {};
+/** defs: [{ key, label, all?, options: [[value, label]] | (values) => [[value, label]] , search?: true, wide?: true }] */
+function filterBar(name, defs, onChange) {
+  const saved = (listFilters[name] ??= {});
+  const inputs = {};
+  const box = el('div', { class: 'filters' });
+  const build = () => {
+    const cur = values();
+    fill(box, defs.map((d) => {
+      let input;
+      if (d.search) {
+        input = inputs[d.key] ?? el('input', { type: 'search', placeholder: d.placeholder ?? 'Search…', value: saved[d.key] ?? '' });
+        input.oninput = () => { saved[d.key] = input.value; onChange(); };
+      } else {
+        const opts = typeof d.options === 'function' ? d.options(cur) : d.options;
+        const v = saved[d.key] ?? '';
+        input = el('select', {}, el('option', { value: '' }, d.all ?? 'All'), opts.map(([val, label]) => el('option', { value: val, selected: String(val) === v }, label)));
+        if (v && !opts.some(([val]) => String(val) === v)) { saved[d.key] = ''; input.value = ''; }
+        input.onchange = () => { saved[d.key] = input.value; if (d.resets) d.resets.forEach((k) => (saved[k] = '')); build(); onChange(); };
+      }
+      inputs[d.key] = input;
+      return field(d.label, input, d.wide || d.search ? 'wide' : '');
+    }), el('button', { class: 'ghost', onclick: () => { Object.keys(saved).forEach((k) => (saved[k] = '')); defs.forEach((d) => d.search && inputs[d.key] && (inputs[d.key].value = '')); build(); onChange(); } }, 'Clear'));
+  };
+  const values = () => ({ ...saved });
+  build();
+  return { node: box, values, rebuild: build };
+}
+const distinct = (list) => [...new Set(list.filter((x) => x != null && x !== ''))].sort((a, b) => String(a).localeCompare(String(b)));
+const matches = (q, ...fields) => !q || fields.some((f) => f != null && String(f).toLowerCase().includes(q.trim().toLowerCase()));
+const countLine = (shown, total, word) => el('p', { class: 'small', style: 'margin:12px 0' }, shown === total ? `${plural(total, word)}` : `Showing ${num(shown)} of ${plural(total, word)}`);
+
+const ADV_STATUS = { pending: 'Waiting for approval', approved: 'Approved', suspended: 'Suspended', rejected: 'Rejected' };
+
 async function admAdvertisers(c) {
   const list = await rpc('admin_market_advertisers');
   const statusClass = { pending: 'warn', approved: 'ok', rejected: 'bad', suspended: 'bad' };
@@ -774,43 +810,79 @@ async function admAdvertisers(c) {
     act('admin_market_set_advertiser', { p_id: a.id, p_status: status, p_note: text }, () => admAdvertisers(c));
   };
   const order = { pending: 0, approved: 1, suspended: 2, rejected: 3 };
-  const sorted = [...list].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
-  fill(c, sorted.length ? sorted.map((a) => el('div', { class: 'card' },
-    el('div', { class: 'card-head' }, el('h3', {}, a.business_name), badge(a.status.toUpperCase(), statusClass[a.status])),
-    el('div', { class: 'meta-line' }, [a.contact_name, a.phone, a.email, a.gst ? 'GST ' + a.gst : null, [a.city, a.state].filter(Boolean).join(', '), a.website].filter(Boolean).join(' · ')),
-    a.address ? el('div', { class: 'meta-line' }, a.address) : null,
-    el('div', { class: 'meta-line' }, `${a.ads} ads (${a.pending_ads} waiting) · paid ${inr(a.spent)} · owed ${inr(a.owed)} · registered ${when(a.created_at)}`),
-    a.admin_note ? el('div', { class: 'meta-line' }, 'Note: ' + a.admin_note) : null,
-    el('div', { class: 'actions' },
-      a.status !== 'approved' ? el('button', { class: 'small', onclick: () => set(a, 'approved') }, 'Approve') : null,
-      a.status === 'pending' ? el('button', { class: 'secondary small', onclick: () => set(a, 'rejected') }, 'Reject') : null,
-      a.status === 'approved' ? el('button', { class: 'danger small', onclick: () => set(a, 'suspended') }, 'Suspend') : null)))
-    : empty('No advertisers have registered yet.', '🏢'));
+  const out = el('div');
+  const count = (st) => list.filter((a) => a.status === st).length;
+  const bar = filterBar('advertisers', [
+    { key: 'status', label: 'Status', all: `All (${list.length})`, options: Object.entries(ADV_STATUS).map(([k, v]) => [k, `${v} (${count(k)})`]) },
+    { key: 'state', label: 'State', all: 'All states', resets: ['town'], options: distinct(list.map((a) => a.state)).map((s) => [s, s]) },
+    { key: 'town', label: 'Town', all: 'All towns', options: (f) => distinct(list.filter((a) => !f.state || a.state === f.state).map((a) => a.city)).map((t) => [t, t]) },
+    { key: 'q', label: 'Search', search: true, placeholder: 'Name, phone, email, GST…' },
+  ], () => render());
+  const render = () => {
+    const f = bar.values();
+    const rows = list
+      .filter((a) => (!f.status || a.status === f.status) && (!f.state || a.state === f.state) && (!f.town || a.city === f.town)
+        && matches(f.q, a.business_name, a.contact_name, a.phone, a.email, a.gst, a.city, a.address))
+      .sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.business_name).localeCompare(b.business_name));
+    fill(out, countLine(rows.length, list.length, 'advertiser'), rows.length ? rows.map((a) => el('div', { class: 'card' },
+      el('div', { class: 'card-head' }, el('h3', {}, a.business_name), badge(ADV_STATUS[a.status] ?? a.status, statusClass[a.status])),
+      el('div', { class: 'meta-line' }, [a.contact_name, a.phone, a.email, a.gst ? 'GST ' + a.gst : null, [a.city, a.state].filter(Boolean).join(', '), a.website].filter(Boolean).join(' · ')),
+      a.address ? el('div', { class: 'meta-line' }, a.address) : null,
+      el('div', { class: 'meta-line' }, `${plural(a.ads, 'ad')} (${a.pending_ads} waiting) · paid ${inr(a.spent)} · owed ${inr(a.owed)} · registered ${when(a.created_at)}`),
+      a.admin_note ? el('div', { class: 'meta-line' }, 'Note: ' + a.admin_note) : null,
+      el('div', { class: 'actions' },
+        a.status !== 'approved' ? el('button', { class: 'small', onclick: () => set(a, 'approved') }, 'Approve') : null,
+        a.status === 'pending' ? el('button', { class: 'secondary small', onclick: () => set(a, 'rejected') }, 'Reject') : null,
+        a.status === 'approved' ? el('button', { class: 'danger small', onclick: () => set(a, 'suspended') }, 'Suspend') : null)))
+      : empty(list.length ? 'No advertisers match these filters.' : 'No advertisers have registered yet.', '🏢'));
+  };
+  fill(c, bar.node, out);
+  render();
 }
 
 async function admAds(c) {
-  const ads = await rpc('admin_market_ads');
+  const [ads, advertisers] = await Promise.all([rpc('admin_market_ads'), rpc('admin_market_advertisers').catch(() => [])]);
+  const advById = Object.fromEntries(advertisers.map((a) => [a.id, a]));
+  const placeOf = (a) => advById[a.advertiser_id] ?? {};
   const formBox = el('div');
+  const out = el('div');
   const showForm = (ad) => { fill(formBox, adForm({ ad, admin: true, onSaved: () => admAds(c) })); formBox.scrollIntoView({ behavior: 'smooth' }); };
   const review = (a, ok) => {
     const text = ok ? null : prompt('Why is it not approved? (the advertiser will see this)', '');
     if (!ok && text === null) return;
     act('admin_market_review_ad', { p_id: a.id, p_approved: ok, p_note: text }, () => admAds(c));
   };
-  const waiting = ads.filter((a) => !a.approved);
-  fill(c,
-    waiting.length ? el('h3', {}, `Waiting for review (${waiting.length})`) : null,
-    waiting.map((a) => adCard(a, [
-      el('button', { class: 'small', onclick: () => review(a, true) }, 'Approve'),
-      el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Not approved'),
-      el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit')])),
-    el('h3', {}, `Approved ads (${ads.length - waiting.length})`),
-    ads.length - waiting.length ? ads.filter((a) => a.approved).map((a) => adCard(a, [
-      el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit'),
-      el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Unapprove'),
-      el('button', { class: 'danger small', onclick: () => confirm('Delete this ad and all its bookings and bids?') && act('admin_market_delete_ad', { p_id: a.id }, () => admAds(c), 'Deleted') }, 'Delete')]))
-      : empty('No approved ads yet.', '🖼️'),
-    formBox);
+  const waitingN = ads.filter((a) => !a.approved).length;
+  const bar = filterBar('ads', [
+    { key: 'status', label: 'Status', all: `All (${ads.length})`, options: [['waiting', `Waiting for review (${waitingN})`], ['approved', `Approved (${ads.length - waitingN})`]] },
+    { key: 'type', label: 'Type', all: 'All types', options: distinct(ads.map((a) => a.category)).map((t) => [t, t]) },
+    { key: 'button', label: 'Button', all: 'All buttons', options: Object.entries(ACTIONS) },
+    { key: 'adv', label: 'Advertiser', all: 'All advertisers', options: distinct(ads.map((a) => a.advertiser)).map((t) => [t, t]) },
+    { key: 'state', label: 'State', all: 'All states', resets: ['town'], options: distinct(ads.map((a) => placeOf(a).state)).map((s) => [s, s]) },
+    { key: 'town', label: 'Town', all: 'All towns', options: (f) => distinct(ads.filter((a) => !f.state || placeOf(a).state === f.state).map((a) => placeOf(a).city)).map((t) => [t, t]) },
+    { key: 'q', label: 'Search', search: true, placeholder: 'Title, offer…' },
+  ], () => render());
+  const render = () => {
+    const f = bar.values();
+    const rows = ads.filter((a) => (!f.status || (f.status === 'approved') === !!a.approved) && (!f.type || a.category === f.type)
+      && (!f.button || a.action === f.button) && (!f.adv || a.advertiser === f.adv)
+      && (!f.state || placeOf(a).state === f.state) && (!f.town || placeOf(a).city === f.town) && matches(f.q, a.title, a.offer, a.advertiser, a.action_value));
+    const waiting = rows.filter((a) => !a.approved), approved = rows.filter((a) => a.approved);
+    fill(out, countLine(rows.length, ads.length, 'ad'),
+      waiting.length ? el('h3', {}, `Waiting for review (${waiting.length})`) : null,
+      waiting.map((a) => adCard(a, [
+        el('button', { class: 'small', onclick: () => review(a, true) }, 'Approve'),
+        el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Not approved'),
+        el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit')])),
+      approved.length ? el('h3', {}, `Approved (${approved.length})`) : null,
+      approved.map((a) => adCard(a, [
+        el('button', { class: 'secondary small', onclick: () => showForm(a) }, 'Edit'),
+        el('button', { class: 'secondary small', onclick: () => review(a, false) }, 'Unapprove'),
+        el('button', { class: 'danger small', onclick: () => confirm('Delete this ad and all its bookings and bids?') && act('admin_market_delete_ad', { p_id: a.id }, () => admAds(c), 'Deleted') }, 'Delete')])),
+      rows.length ? null : empty(ads.length ? 'No ads match these filters.' : 'No ads yet. Create one below.', '🖼️'));
+  };
+  fill(c, bar.node, out, formBox);
+  render();
   fill(formBox, adForm({ ad: null, admin: true, onSaved: () => admAds(c) }));
 }
 
@@ -954,17 +1026,32 @@ async function admPlaces(c) {
   await load();
 }
 
+const AUDIT_NAMES = { market_ads: 'Ad', market_bookings: 'Booking', market_bids: 'Bid', market_advertisers: 'Advertiser', market_prices: 'Price',
+  market_settings: 'Settings', market_special_days: 'Special day', market_house_cards: 'House card', market_places: 'Place' };
+const AUDIT_VERBS = { INSERT: 'Added', UPDATE: 'Changed', DELETE: 'Removed' };
+
 async function admActivity(c) {
-  const rows = await rpc('admin_market_audit', { p_limit: 300 });
-  const names = { market_ads: 'ad', market_bookings: 'booking', market_bids: 'bid', market_advertisers: 'advertiser', market_prices: 'price',
-    market_settings: 'settings', market_special_days: 'special day', market_house_cards: 'house card', market_places: 'place' };
-  const verbs = { INSERT: 'added', UPDATE: 'changed', DELETE: 'removed' };
-  fill(c, el('p', { class: 'small' }, 'Every change to the Market, newest first. Kept for one year.'),
-    dataTable([
+  const rows = await rpc('admin_market_audit', { p_limit: 1000 });
+  const out = el('div');
+  const bar = filterBar('activity', [
+    { key: 'type', label: 'Type', all: 'All types', options: distinct(rows.map((r) => r.tbl)).map((t) => [t, AUDIT_NAMES[t] ?? t]) },
+    { key: 'op', label: 'Action', all: 'All actions', options: Object.entries(AUDIT_VERBS) },
+    { key: 'who', label: 'Who', all: 'Everyone', wide: true, options: distinct(rows.map((r) => r.who)).map((w) => [w, w]) },
+    { key: 'day', label: 'When', all: 'Any time', options: [['1', 'Last 24 hours'], ['7', 'Last 7 days'], ['30', 'Last 30 days']] },
+  ], () => render());
+  const render = () => {
+    const f = bar.values();
+    const since = f.day ? Date.now() - Number(f.day) * 86400e3 : 0;
+    const list = rows.filter((r) => (!f.type || r.tbl === f.type) && (!f.op || r.op === f.op) && (!f.who || r.who === f.who) && (!since || new Date(r.at).getTime() >= since));
+    fill(out, dataTable([
       { key: 'at', label: 'When', fmt: (v) => when(v) },
       { key: 'who', label: 'Who' },
-      { key: 'what', label: 'What', get: (r) => `${verbs[r.op] ?? r.op} ${names[r.tbl] ?? r.tbl}` },
-    ], rows, { csv: 'activity', limit: 100 }));
+      { key: 'tbl', label: 'Type', fmt: (v) => AUDIT_NAMES[v] ?? v, csv: (r) => AUDIT_NAMES[r.tbl] ?? r.tbl },
+      { key: 'op', label: 'Action', fmt: (v) => badge(AUDIT_VERBS[v] ?? v, v === 'DELETE' ? 'bad' : v === 'INSERT' ? 'ok' : 'info'), csv: (r) => AUDIT_VERBS[r.op] ?? r.op },
+    ], list, { csv: 'activity', limit: 100, emptyText: 'No changes match these filters.' }));
+  };
+  fill(c, bar.node, el('p', { class: 'small', style: 'margin:12px 0' }, 'Every change to the Market, newest first (last 1,000). Kept for one year.'), out);
+  render();
 }
 
 // ---------------------------------------------------------------------------
